@@ -1,287 +1,205 @@
-/* style.css */
-:root{
-  --bg:#0b1220;
-  --panel:#0f172a;
-  --panel2:#111c33;
-  --border:#22304b;
-  --text:#e5e7eb;
-  --muted:#9ca3af;
-  --accent:#3b82f6;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Power BI Prototype Dashboard</title>
 
-  --canvas-w: 1280px;
-  --canvas-h: 720px;
+  <link rel="stylesheet" href="style.css" />
 
-  --default-visual-bg: rgba(255,255,255,0.04);
-  --default-title-color: #e5e7eb;
-}
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
-body{
-  margin:0;
-  font-family:"Segoe UI", system-ui, -apple-system, Arial, sans-serif;
-  background:var(--bg);
-  color:var(--text);
-}
+  <!-- Treemap plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
+</head>
 
-.app{
-  height:100%;
-  display:grid;
-  grid-template-columns: 290px 1fr 340px;
-}
+<body>
+  <div class="app">
 
-.pane{
-  display:flex;
-  flex-direction:column;
-  background:var(--panel);
-  border-right:1px solid var(--border);
-  min-width:0;
-}
-.pane-right{
-  border-right:none;
-  border-left:1px solid var(--border);
-  background:var(--panel2);
-}
-.pane-header{
-  padding:14px 14px 10px;
-  border-bottom:1px solid var(--border);
-}
-.pane-title{ font-weight:800; font-size:14px; }
-.pane-subtitle{ margin-top:4px; font-size:12px; color:var(--muted); }
-.pane-section{ padding:12px 14px; }
-.pane-divider{ height:1px; background:var(--border); margin:0 14px; }
-.pane-footer{ margin-top:auto; padding:12px 14px; border-top:1px solid var(--border); }
+    <!-- LEFT: Visuals pane -->
+    <aside class="leftPane">
+      <div class="paneHeader">
+        <div class="paneTitle">Visualizations</div>
+        <div class="paneSubtitle">Prototype-only (Power BI-like)</div>
+      </div>
 
-.field-label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
-.field-control{
-  width:100%;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,0.03);
-  color:var(--text);
-  border-radius:10px;
-  padding:9px 10px;
-  outline:none;
-}
-.field-control:focus{
-  border-color: rgba(59,130,246,.7);
-  box-shadow:0 0 0 3px rgba(59,130,246,.2);
-}
+      <div class="controlGroup">
+        <label class="label">Add visual</label>
 
-.file-control{
-  width:100%;
-  border:1px dashed rgba(255,255,255,.18);
-  background:rgba(255,255,255,0.03);
-  color:var(--muted);
-  border-radius:12px;
-  padding:10px;
-}
+        <select id="visualType" class="select">
+          <optgroup label="Basic">
+            <option value="pie">Pie Chart</option>
+            <option value="donut">Donut Chart</option>
+          </optgroup>
 
-.row{ display:flex; gap:10px; align-items:center; }
+          <optgroup label="Line & Area">
+            <option value="line">Line Chart (multiple trends)</option>
+            <option value="area">Area Chart</option>
+            <option value="stackedArea">Stacked Area Chart</option>
+          </optgroup>
 
-.btn{
-  border:1px solid var(--border);
-  background:rgba(255,255,255,0.03);
-  color:var(--text);
-  padding:9px 12px;
-  border-radius:12px;
-  cursor:pointer;
-  user-select:none;
-}
-.btn:hover{ background:rgba(255,255,255,0.06); }
-.btn.small{ padding:7px 10px; border-radius:10px; font-size:12px; }
-.btn.primary{
-  border-color: rgba(59,130,246,.7);
-  background: rgba(59,130,246,.18);
-}
-.btn.primary:hover{ background: rgba(59,130,246,.25); }
+          <optgroup label="Bar & Column">
+            <option value="clusteredBar">Clustered Bar Chart</option>
+            <option value="stackedBar">Stacked Bar Chart</option>
+            <option value="stackedBar100">100% Stacked Bar Chart</option>
 
-.hint{ font-size:12px; color:var(--muted); line-height:1.35; margin-top:8px; }
-.color-control{
-  width:46px; height:36px;
-  border:1px solid var(--border);
-  border-radius:10px;
-  padding:0;
-  background:transparent;
-}
+            <option value="clusteredColumn">Clustered Column Chart</option>
+            <option value="stackedColumn">Stacked Column Chart</option>
+            <option value="stackedColumn100">100% Stacked Column Chart</option>
 
-.center{
-  display:flex;
-  flex-direction:column;
-  min-width:0;
-  background:
-    radial-gradient(1200px 600px at 30% 10%, rgba(59,130,246,.12), transparent 55%),
-    radial-gradient(1000px 500px at 70% 40%, rgba(16,185,129,.10), transparent 50%),
-    var(--bg);
-}
+            <option value="lineClusteredColumn">Line & Clustered Column Chart</option>
+            <option value="lineStackedColumn">Line & Stacked Column Chart</option>
+          </optgroup>
 
-.topbar{
-  height:54px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 16px;
-  border-bottom:1px solid var(--border);
-  background:rgba(0,0,0,.12);
-}
-.topbar-left{ display:flex; gap:12px; align-items:center; }
-.badge{
-  font-size:12px;
-  font-weight:800;
-  padding:6px 10px;
-  border:1px solid rgba(255,255,255,.18);
-  border-radius:999px;
-  background:rgba(255,255,255,.04);
-}
-.topbar-text{ font-size:12px; color:var(--muted); }
-.kbd{
-  font-size:12px;
-  color:var(--muted);
-  border:1px solid rgba(255,255,255,.16);
-  border-radius:10px;
-  padding:6px 10px;
-  background:rgba(255,255,255,.03);
-}
+          <optgroup label="Other (Prototype visuals)">
+            <option value="treemap">Treemap (visual prototype)</option>
+            <option value="ribbon">Ribbon Chart (visual prototype)</option>
+            <option value="scatter">Scatter Chart</option>
+          </optgroup>
 
-.workspace{ padding:16px; overflow:auto; }
+          <optgroup label="Media">
+            <option value="image">Upload Image</option>
+          </optgroup>
+        </select>
 
-.canvas-frame{
-  width: calc(var(--canvas-w) + 2px);
-  height: calc(var(--canvas-h) + 2px);
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:16px;
-  overflow:hidden;
-  background:rgba(255,255,255,0.02);
-  box-shadow:0 10px 25px rgba(0,0,0,.25);
-}
-.canvas{
-  width:var(--canvas-w);
-  height:var(--canvas-h);
-  position:relative;
-  background:#0b1220;
-}
-.canvas-click-catcher{
-  position:absolute;
-  inset:0;
-  z-index:1;
-}
-.grid-stack{
-  position:absolute;
-  inset:0;
-  z-index:2;
-}
+        <button id="addVisualBtn" class="btnPrimary">Add</button>
+      </div>
 
-/* Visual */
-.visual{
-  width:100%;
-  height:100%;
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:10px;
-  background:var(--default-visual-bg);
-  overflow:hidden;
-  display:flex;
-  flex-direction:column;
-}
+      <div class="hintBox">
+        <div class="hintTitle">Behaves like Power BI:</div>
+        <ul class="hintList">
+          <li>Fixed canvas 1280×720</li>
+          <li>Drag + resize visuals</li>
+          <li>Visuals can overlap</li>
+          <li>Format pane always visible</li>
+          <li>Per-series colors (multi-trend)</li>
+        </ul>
+      </div>
 
-.visual.selected{
-  outline:2px solid rgba(59,130,246,.9);
-  outline-offset:-2px;
-}
+      <div class="footerNote">
+        Prototype tool — dummy retail data only.
+      </div>
+    </aside>
 
-.visual-header{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:8px 10px;
-  gap:10px;
-  border-bottom:1px solid rgba(255,255,255,.10);
-  background:rgba(0,0,0,.10);
-}
-.visual-title{
-  font-size:12px;
-  font-weight:800;
-  color:var(--default-title-color);
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.visual-actions{ display:flex; gap:8px; align-items:center; }
+    <!-- CENTER: Canvas -->
+    <main class="centerPane">
+      <div class="canvasFrame">
+        <div class="canvasHeader">
+          <div class="canvasTitle">Report page</div>
+          <div class="canvasMeta">
+            Fixed size (Power BI-like) • Overlap allowed • No infinite scroll
+          </div>
+        </div>
 
-.icon-btn{
-  width:24px; height:24px;
-  border-radius:8px;
-  border:1px solid rgba(255,255,255,.12);
-  background:rgba(255,255,255,.03);
-  color:var(--text);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  cursor:pointer;
-  font-size:13px;
-  line-height:1;
-}
-.icon-btn.danger{
-  border-color: rgba(239,68,68,.5);
-  background: rgba(239,68,68,.10);
-}
-.visual:not(.selected) .icon-btn.danger{ display:none; }
+        <div id="canvas" class="canvas" aria-label="Power BI like canvas">
+          <!-- visuals injected here -->
+        </div>
+      </div>
+    </main>
 
-.visual-body{
-  position:relative;
-  flex:1;
-  padding:10px;
-  display:flex;
-  min-height:0;
-}
-.visual-body canvas, .visual-body img{
-  width:100% !important;
-  height:100% !important;
-  border-radius:8px;
-}
-.visual-body img{ object-fit:contain; }
+    <!-- RIGHT: Format pane -->
+    <aside class="rightPane">
+      <div class="paneHeader">
+        <div class="paneTitle">Format</div>
+        <div id="formatStatus" class="paneSubtitle">
+          Select a visual to format
+        </div>
+      </div>
 
-/* Format */
-.format-block{ padding:12px 14px; }
-.format-block.hidden{ display:none; }
-.format-group{
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:14px;
-  padding:12px;
-  background:rgba(0,0,0,.10);
-}
-.group-title{ font-weight:900; font-size:12px; margin-bottom:10px; }
+      <div class="formatBody">
 
-.series-editor{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-  margin-top:10px;
-}
-.series-row{
-  display:grid;
-  grid-template-columns: 1fr 52px;
-  gap:10px;
-  align-items:center;
-}
-.series-row input[type="text"]{
-  width:100%;
-  border:1px solid rgba(255,255,255,.14);
-  background:rgba(255,255,255,.03);
-  color:var(--text);
-  border-radius:10px;
-  padding:8px 10px;
-  outline:none;
-}
-.series-row input[type="text"]:focus{
-  border-color: rgba(59,130,246,.7);
-  box-shadow:0 0 0 3px rgba(59,130,246,.2);
-}
-.series-row input[type="color"]{
-  width:52px; height:36px;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:10px;
-  padding:0;
-  background:transparent;
-}
+        <!-- Theme -->
+        <div class="section">
+          <div class="sectionTitle">Theme</div>
 
-/* Gridstack content should be transparent */
-.grid-stack-item-content{ background:transparent; }
+          <div class="field">
+            <label class="label">Dashboard background</label>
+            <input id="fmtDashboardBg" type="color" class="colorInput" />
+          </div>
+
+          <div class="field">
+            <label class="label">Visual background</label>
+            <input id="fmtVisualBg" type="color" class="colorInput" />
+          </div>
+
+          <div class="field">
+            <label class="label">Visual border</label>
+            <input id="fmtVisualBorder" type="color" class="colorInput" />
+          </div>
+        </div>
+
+        <!-- General -->
+        <div class="section">
+          <div class="sectionTitle">General</div>
+
+          <div class="field">
+            <label class="label">Title</label>
+            <input
+              id="fmtTitle"
+              class="input"
+              type="text"
+              placeholder="Visual title"
+              disabled
+            />
+          </div>
+
+          <div class="fieldRow">
+            <div class="field">
+              <label class="label">X</label>
+              <input id="fmtX" class="input" type="number" disabled />
+            </div>
+            <div class="field">
+              <label class="label">Y</label>
+              <input id="fmtY" class="input" type="number" disabled />
+            </div>
+          </div>
+
+          <div class="fieldRow">
+            <div class="field">
+              <label class="label">W</label>
+              <input id="fmtW" class="input" type="number" disabled />
+            </div>
+            <div class="field">
+              <label class="label">H</label>
+              <input id="fmtH" class="input" type="number" disabled />
+            </div>
+          </div>
+
+          <button id="bringFrontBtn" class="btnGhost" disabled>
+            Bring to front
+          </button>
+        </div>
+
+        <!-- Data Colors -->
+        <div class="section">
+          <div class="sectionTitle">Data colors</div>
+          <div id="seriesColors" class="seriesColors">
+            <div class="emptyState">No visual selected.</div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="section">
+          <div class="sectionTitle">Notes</div>
+          <div class="noteText">
+            This is a <b>visual prototype</b> tool for stakeholder alignment —
+            not real analytics.
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </div>
+
+  <!-- Hidden image upload -->
+  <input
+    id="imageUpload"
+    type="file"
+    accept="image/*"
+    style="display: none"
+  />
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Power BI Prototype Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <link rel="stylesheet" href="style.css"/>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
+</head>
+
+<body>
+<div class="app">
+
+  <!-- LEFT -->
+  <aside class="leftPane">
+    <div class="paneHeader">
+      <div class="paneTitle">Visualizations</div>
+      <div class="paneSubtitle">Prototype Builder</div>
+    </div>
+
+    <div class="controlGroup">
+      <label class="label">Add visual</label>
+      <select id="visualType" class="select">
+        <optgroup label="Basic">
+          <option value="pie">Pie Chart</option>
+          <option value="donut">Donut Chart</option>
+        </optgroup>
+
+        <optgroup label="Line & Area">
+          <option value="line">Line Chart</option>
+          <option value="area">Area Chart</option>
+          <option value="stackedArea">Stacked Area Chart</option>
+        </optgroup>
+
+        <optgroup label="Bar & Column">
+          <option value="clusteredBar">Clustered Bar</option>
+          <option value="stackedBar">Stacked Bar</option>
+          <option value="stackedBar100">100% Stacked Bar</option>
+          <option value="clusteredColumn">Clustered Column</option>
+          <option value="stackedColumn">Stacked Column</option>
+          <option value="stackedColumn100">100% Stacked Column</option>
+          <option value="lineClusteredColumn">Line & Clustered Column</option>
+          <option value="lineStackedColumn">Line & Stacked Column</option>
+        </optgroup>
+
+        <optgroup label="Other">
+          <option value="treemap">Treemap</option>
+          <option value="ribbon">Ribbon (Prototype)</option>
+          <option value="scatter">Scatter</option>
+        </optgroup>
+
+        <optgroup label="Media">
+          <option value="image">Upload Image</option>
+        </optgroup>
+      </select>
+
+      <button id="addVisualBtn" class="btnPrimary">Add</button>
+    </div>
+  </aside>
+
+  <!-- CENTER -->
+  <main class="centerPane">
+    <div class="canvasFrame">
+      <div class="canvasHeader">
+        <div class="canvasTitle">Report Page</div>
+        <div class="canvasMeta">Fixed 1280×720 • Power BI-like</div>
+      </div>
+
+      <div id="canvas" class="canvas"></div>
+    </div>
+  </main>
+
+  <!-- RIGHT -->
+  <aside class="rightPane">
+    <div class="paneHeader">
+      <div class="paneTitle">Format</div>
+      <div id="formatStatus" class="paneSubtitle">Select a visual</div>
+    </div>
+
+    <div class="formatBody">
+
+      <!-- GENERAL -->
+      <div class="section">
+        <div class="sectionTitle">General</div>
+
+        <div class="field">
+          <label class="label">Title</label>
+          <input id="fmtTitle" class="input" disabled>
+        </div>
+      </div>
+
+      <!-- DATA COLORS -->
+      <div class="section">
+        <div class="sectionTitle">Data colors</div>
+        <div id="seriesColors"></div>
+      </div>
+
+      <!-- THEME -->
+      <div class="section">
+        <div class="sectionTitle">Theme</div>
+
+        <div class="field">
+          <label class="label">Dashboard background</label>
+          <input id="fmtDashboardBg" type="color" class="colorInput">
+        </div>
+
+        <div class="field">
+          <label class="label">Visual background</label>
+          <input id="fmtVisualBg" type="color" class="colorInput">
+        </div>
+
+        <div class="field">
+          <label class="label">Visual border</label>
+          <input id="fmtVisualBorder" type="color" class="colorInput">
+        </div>
+      </div>
+
+    </div>
+  </aside>
+</div>
+
+<input id="imageUpload" type="file" accept="image/*" hidden/>
+
+<script src="script.js"></script>
+</body>
+</html>

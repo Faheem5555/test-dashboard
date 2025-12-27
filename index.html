@@ -1,130 +1,175 @@
-<!DOCTYPE html>
+<!-- index.html -->
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Power BI Prototype Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Power BI-Style Prototype Dashboard</title>
 
-  <link rel="stylesheet" href="style.css"/>
+  <!-- Gridstack (drag/resize) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack.min.css" />
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- LEFT: Visuals pane -->
+    <aside class="pane pane-left" aria-label="Visuals pane">
+      <div class="pane-header">
+        <div class="pane-title">Visualizations</div>
+        <div class="pane-subtitle">Prototype-only (layout & formatting)</div>
+      </div>
+
+      <div class="pane-section">
+        <label class="field-label" for="visualCategory">Category</label>
+        <select id="visualCategory" class="field-control" aria-label="Visual category"></select>
+      </div>
+
+      <div class="pane-section">
+        <label class="field-label" for="visualType">Visual</label>
+        <select id="visualType" class="field-control" aria-label="Visual type"></select>
+      </div>
+
+      <div class="pane-section row">
+        <button id="addVisualBtn" class="btn primary" type="button">Add visual</button>
+        <button id="deselectBtn" class="btn" type="button" title="Deselect">Deselect</button>
+      </div>
+
+      <div class="pane-divider"></div>
+
+      <div class="pane-section">
+        <div class="field-label">Upload Image (as a visual)</div>
+        <input id="imageUpload" class="file-control" type="file" accept="image/*" aria-label="Upload image as visual" />
+        <div class="hint">Tip: Upload logos, mockups, screenshots — draggable & resizable.</div>
+      </div>
+
+      <div class="pane-divider"></div>
+
+      <div class="pane-section">
+        <div class="field-label">Canvas</div>
+        <div class="hint">
+          Fixed size: <b>1280 × 720</b>. No infinite scroll. Visuals can overlap.
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER: Canvas -->
+    <main class="center" aria-label="Dashboard workspace">
+      <div class="topbar" role="banner">
+        <div class="topbar-left">
+          <div class="badge">Prototype Dashboard</div>
+          <div class="topbar-text">Power BI-like layout & formatting (no real analytics)</div>
+        </div>
+        <div class="topbar-right">
+          <div class="kbd">Click empty canvas to format dashboard</div>
+        </div>
+      </div>
+
+      <section class="workspace">
+        <!-- Fixed canvas frame -->
+        <div class="canvas-frame" aria-label="Fixed dashboard canvas">
+          <div id="canvas" class="canvas">
+            <div class="grid-stack" id="grid" aria-label="Dashboard grid"></div>
+            <!-- click-catcher to enable deselecting by clicking empty space -->
+            <div id="canvasClickCatcher" class="canvas-click-catcher" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- RIGHT: Format pane (always visible) -->
+    <aside class="pane pane-right" aria-label="Format pane">
+      <div class="pane-header">
+        <div class="pane-title">Format</div>
+        <div id="formatContext" class="pane-subtitle">Dashboard</div>
+      </div>
+
+      <!-- Dashboard formatting (visible when nothing selected) -->
+      <div id="dashboardFormat" class="format-block" aria-label="Dashboard formatting">
+        <div class="format-group">
+          <div class="group-title">Dashboard</div>
+
+          <label class="field-label" for="dashboardBg">Background</label>
+          <div class="row">
+            <input id="dashboardBg" type="color" class="color-control" aria-label="Dashboard background color" />
+            <button id="dashboardBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="dashboardTheme">Theme</label>
+          <select id="dashboardTheme" class="field-control" aria-label="Dashboard theme">
+            <option value="light">Light</option>
+            <option value="dark" selected>Dark</option>
+            <option value="brand">Brand</option>
+          </select>
+          <div class="hint">Theme sets dashboard styling + default visual look.</div>
+
+          <div class="pane-divider"></div>
+
+          <div class="group-title">Defaults for new visuals</div>
+          <label class="field-label" for="defaultVisualBg">Visual background</label>
+          <div class="row">
+            <input id="defaultVisualBg" type="color" class="color-control" aria-label="Default visual background color" />
+            <button id="defaultVisualBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="defaultTitleColor">Title color</label>
+          <div class="row">
+            <input id="defaultTitleColor" type="color" class="color-control" aria-label="Default title color" />
+            <button id="defaultTitleReset" class="btn small" type="button">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Visual formatting (visible when a visual is selected) -->
+      <div id="visualFormat" class="format-block hidden" aria-label="Visual formatting">
+        <div class="format-group">
+          <div class="group-title">Visual</div>
+
+          <label class="field-label" for="visualTitle">Title</label>
+          <input id="visualTitle" class="field-control" type="text" placeholder="Visual title" aria-label="Visual title" />
+
+          <label class="field-label" for="visualBg">Background</label>
+          <div class="row">
+            <input id="visualBg" type="color" class="color-control" aria-label="Visual background color" />
+            <button id="visualBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="visualTheme">Apply theme styling</label>
+          <div class="row">
+            <select id="visualTheme" class="field-control" aria-label="Visual theme preset">
+              <option value="inherit" selected>Inherit dashboard</option>
+              <option value="light">Light visual</option>
+              <option value="dark">Dark visual</option>
+              <option value="brand">Brand visual</option>
+            </select>
+            <button id="applyVisualTheme" class="btn small" type="button">Apply</button>
+          </div>
+
+          <div class="pane-divider"></div>
+
+          <div class="group-title">Series / legend</div>
+          <div class="hint">Edit series names + colors. Changes reflect immediately.</div>
+
+          <div id="seriesEditor" class="series-editor" aria-label="Series editor"></div>
+        </div>
+      </div>
+
+      <div class="pane-footer">
+        <div class="hint">
+          ✅ Drag & resize visuals • ✅ Overlap allowed • ✅ Format pane always visible
+        </div>
+      </div>
+    </aside>
+  </div>
 
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-treemap@2.3.0/dist/chartjs-chart-treemap.min.js"></script>
-</head>
 
-<body>
-<div class="app">
+  <!-- Gridstack -->
+  <script src="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack-all.min.js"></script>
 
-  <!-- LEFT -->
-  <aside class="leftPane">
-    <div class="paneHeader">
-      <div class="paneTitle">Visualizations</div>
-      <div class="paneSubtitle">Prototype Builder</div>
-    </div>
-
-    <div class="controlGroup">
-      <label class="label">Add visual</label>
-      <select id="visualType" class="select">
-        <optgroup label="Basic">
-          <option value="pie">Pie Chart</option>
-          <option value="donut">Donut Chart</option>
-        </optgroup>
-
-        <optgroup label="Line & Area">
-          <option value="line">Line Chart</option>
-          <option value="area">Area Chart</option>
-          <option value="stackedArea">Stacked Area Chart</option>
-        </optgroup>
-
-        <optgroup label="Bar & Column">
-          <option value="clusteredBar">Clustered Bar</option>
-          <option value="stackedBar">Stacked Bar</option>
-          <option value="stackedBar100">100% Stacked Bar</option>
-          <option value="clusteredColumn">Clustered Column</option>
-          <option value="stackedColumn">Stacked Column</option>
-          <option value="stackedColumn100">100% Stacked Column</option>
-          <option value="lineClusteredColumn">Line & Clustered Column</option>
-          <option value="lineStackedColumn">Line & Stacked Column</option>
-        </optgroup>
-
-        <optgroup label="Other">
-          <option value="treemap">Treemap</option>
-          <option value="ribbon">Ribbon (Prototype)</option>
-          <option value="scatter">Scatter</option>
-        </optgroup>
-
-        <optgroup label="Media">
-          <option value="image">Upload Image</option>
-        </optgroup>
-      </select>
-
-      <button id="addVisualBtn" class="btnPrimary">Add</button>
-    </div>
-  </aside>
-
-  <!-- CENTER -->
-  <main class="centerPane">
-    <div class="canvasFrame">
-      <div class="canvasHeader">
-        <div class="canvasTitle">Report Page</div>
-        <div class="canvasMeta">Fixed 1280×720 • Power BI-like</div>
-      </div>
-
-      <div id="canvas" class="canvas"></div>
-    </div>
-  </main>
-
-  <!-- RIGHT -->
-  <aside class="rightPane">
-    <div class="paneHeader">
-      <div class="paneTitle">Format</div>
-      <div id="formatStatus" class="paneSubtitle">Select a visual</div>
-    </div>
-
-    <div class="formatBody">
-
-      <!-- GENERAL -->
-      <div class="section">
-        <div class="sectionTitle">General</div>
-
-        <div class="field">
-          <label class="label">Title</label>
-          <input id="fmtTitle" class="input" disabled>
-        </div>
-      </div>
-
-      <!-- DATA COLORS -->
-      <div class="section">
-        <div class="sectionTitle">Data colors</div>
-        <div id="seriesColors"></div>
-      </div>
-
-      <!-- THEME -->
-      <div class="section">
-        <div class="sectionTitle">Theme</div>
-
-        <div class="field">
-          <label class="label">Dashboard background</label>
-          <input id="fmtDashboardBg" type="color" class="colorInput">
-        </div>
-
-        <div class="field">
-          <label class="label">Visual background</label>
-          <input id="fmtVisualBg" type="color" class="colorInput">
-        </div>
-
-        <div class="field">
-          <label class="label">Visual border</label>
-          <input id="fmtVisualBorder" type="color" class="colorInput">
-        </div>
-      </div>
-
-    </div>
-  </aside>
-</div>
-
-<input id="imageUpload" type="file" accept="image/*" hidden/>
-
-<script src="script.js"></script>
+  <!-- App script -->
+  <script src="script.js"></script>
 </body>
 </html>

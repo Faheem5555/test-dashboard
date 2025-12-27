@@ -1,94 +1,173 @@
-<!DOCTYPE html>
+<!-- index.html -->
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Power BI Prototype Dashboard</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Power BI-Style Prototype Dashboard</title>
 
-  <!-- Kill favicon warning -->
+  <!-- Silence favicon warning -->
   <link rel="icon" href="data:,">
 
-  <!-- GridStack v11 -->
-  <link href="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack.min.css" rel="stylesheet"/>
+  <!-- Gridstack -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack.min.css" />
 
-  <!-- App CSS -->
-  <link rel="stylesheet" href="style.css"/>
+  <!-- App -->
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
-<div class="app">
-
-  <!-- LEFT PANE -->
-  <aside class="left-pane">
-    <h3>Visualizations</h3>
-
-    <label>Category</label>
-    <select id="visualCategory"></select>
-
-    <label>Visual</label>
-    <select id="visualType"></select>
-
-    <button id="addVisual">Add Visual</button>
-
-    <hr>
-
-    <label>Upload Image</label>
-    <input type="file" id="imageUpload" accept="image/*"/>
-
-    <p class="hint">Prototype only – layout & formatting</p>
-  </aside>
-
-  <!-- CENTER -->
-  <main class="center">
-    <header class="topbar">
-      <span>Power BI–Style Prototype Dashboard</span>
-    </header>
-
-    <div class="canvas-frame">
-      <div id="canvas">
-        <div class="grid-stack" id="grid"></div>
-        <div id="canvasClick"></div>
+  <div class="app">
+    <!-- LEFT: Visuals pane -->
+    <aside class="pane pane-left" aria-label="Visuals pane">
+      <div class="pane-header">
+        <div class="pane-title">Visualizations</div>
+        <div class="pane-subtitle">Prototype-only (layout & formatting)</div>
       </div>
-    </div>
-  </main>
 
-  <!-- RIGHT FORMAT PANE -->
-  <aside class="right-pane">
-    <h3 id="formatTitle">Dashboard</h3>
+      <div class="pane-section">
+        <label class="field-label" for="visualCategory">Category</label>
+        <select id="visualCategory" class="field-control"></select>
+      </div>
 
-    <!-- DASHBOARD FORMAT -->
-    <div id="dashboardFormat">
-      <label>Dashboard Background</label>
-      <input type="color" id="dashboardBg"/>
+      <div class="pane-section">
+        <label class="field-label" for="visualType">Visual</label>
+        <select id="visualType" class="field-control"></select>
+      </div>
 
-      <label>Theme</label>
-      <select id="dashboardTheme">
-        <option value="dark">Dark</option>
-        <option value="light">Light</option>
-        <option value="brand">Brand</option>
-      </select>
-    </div>
+      <div class="pane-section row">
+        <button id="addVisualBtn" class="btn primary" type="button">Add visual</button>
+        <button id="deselectBtn" class="btn" type="button">Deselect</button>
+      </div>
 
-    <!-- VISUAL FORMAT -->
-    <div id="visualFormat" class="hidden">
-      <label>Title</label>
-      <input type="text" id="visualTitle"/>
+      <div class="pane-divider"></div>
 
-      <label>Visual Background</label>
-      <input type="color" id="visualBg"/>
+      <div class="pane-section">
+        <div class="field-label">Upload Image (as a visual)</div>
+        <input id="imageUpload" class="file-control" type="file" accept="image/*" />
+        <div class="hint">Upload any image → draggable, resizable, selectable.</div>
+      </div>
 
-      <h4>Series</h4>
-      <div id="seriesEditor"></div>
-    </div>
-  </aside>
+      <div class="pane-divider"></div>
 
-</div>
+      <div class="pane-section">
+        <div class="field-label">Canvas</div>
+        <div class="hint">Fixed: <b>1280 × 720</b> • No infinite scroll • Overlap allowed</div>
+      </div>
+    </aside>
 
-<!-- Libraries -->
-<script src="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack-all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- CENTER: Canvas -->
+    <main class="center" aria-label="Workspace">
+      <div class="topbar">
+        <div class="topbar-left">
+          <div class="badge">Prototype Dashboard</div>
+          <div class="topbar-text">Power BI-like layout & formatting (no real analytics)</div>
+        </div>
+        <div class="topbar-right">
+          <div class="kbd">Click empty canvas → Dashboard formatting</div>
+        </div>
+      </div>
 
-<!-- App JS -->
-<script src="script.js"></script>
+      <section class="workspace">
+        <div class="canvas-frame">
+          <div id="canvas" class="canvas">
+            <div class="grid-stack" id="grid"></div>
+            <div id="canvasClickCatcher" class="canvas-click-catcher" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- RIGHT: Format pane (always visible) -->
+    <aside class="pane pane-right" aria-label="Format pane">
+      <div class="pane-header">
+        <div class="pane-title">Format</div>
+        <div id="formatContext" class="pane-subtitle">Dashboard</div>
+      </div>
+
+      <!-- Dashboard formatting -->
+      <div id="dashboardFormat" class="format-block">
+        <div class="format-group">
+          <div class="group-title">Dashboard</div>
+
+          <label class="field-label" for="dashboardBg">Background</label>
+          <div class="row">
+            <input id="dashboardBg" type="color" class="color-control" />
+            <button id="dashboardBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="dashboardTheme">Theme</label>
+          <select id="dashboardTheme" class="field-control">
+            <option value="light">Light</option>
+            <option value="dark" selected>Dark</option>
+            <option value="brand">Brand</option>
+          </select>
+          <div class="hint">Theme controls canvas + default visual styling + chart text/legend.</div>
+
+          <div class="pane-divider"></div>
+
+          <div class="group-title">Defaults for new visuals</div>
+
+          <label class="field-label" for="defaultVisualBg">Default visual background</label>
+          <div class="row">
+            <input id="defaultVisualBg" type="color" class="color-control" />
+            <button id="defaultVisualBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="defaultTitleColor">Default title color</label>
+          <div class="row">
+            <input id="defaultTitleColor" type="color" class="color-control" />
+            <button id="defaultTitleReset" class="btn small" type="button">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Visual formatting -->
+      <div id="visualFormat" class="format-block hidden">
+        <div class="format-group">
+          <div class="group-title">Visual</div>
+
+          <label class="field-label" for="visualTitle">Title</label>
+          <input id="visualTitle" class="field-control" type="text" />
+
+          <label class="field-label" for="visualBg">Visual background</label>
+          <div class="row">
+            <input id="visualBg" type="color" class="color-control" />
+            <button id="visualBgReset" class="btn small" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="visualTheme">Visual theme</label>
+          <div class="row">
+            <select id="visualTheme" class="field-control">
+              <option value="inherit" selected>Inherit dashboard</option>
+              <option value="light">Light visual</option>
+              <option value="dark">Dark visual</option>
+              <option value="brand">Brand visual</option>
+            </select>
+            <button id="applyVisualTheme" class="btn small" type="button">Apply</button>
+          </div>
+
+          <div class="pane-divider"></div>
+
+          <div class="group-title">Series / legend</div>
+          <div class="hint">Edit series names and colors. Updates apply instantly.</div>
+
+          <div id="seriesEditor" class="series-editor"></div>
+        </div>
+      </div>
+
+      <div class="pane-footer">
+        <div class="hint">✅ Drag & resize • ✅ Overlap allowed • ✅ Format pane always visible</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Gridstack -->
+  <script src="https://cdn.jsdelivr.net/npm/gridstack@11.3.0/dist/gridstack-all.min.js"></script>
+
+  <!-- App -->
+  <script src="script.js"></script>
 </body>
 </html>

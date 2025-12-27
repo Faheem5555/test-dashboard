@@ -264,7 +264,9 @@
   // -------------------------
   // Helpers
   // -------------------------
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
 
   function showToast(msg){
     if (!toastEl) return;
@@ -1897,3 +1899,4 @@
   // addVisual("donut");
 
 })();
+

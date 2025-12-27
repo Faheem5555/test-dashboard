@@ -1,0 +1,88 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #0f1115;
+  color: #e8ecf2;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 260px 1fr 320px;
+  height: 100vh;
+}
+
+.leftPane, .rightPane {
+  background: #141821;
+  border-right: 1px solid #262b36;
+}
+
+.rightPane { border-left: 1px solid #262b36; }
+
+.centerPane {
+  padding: 16px;
+  overflow: auto;
+}
+
+.canvas {
+  width: 1280px;
+  height: 720px;
+  background: #ffffff;
+  border: 1px solid #ccc;
+  position: relative;
+  overflow: hidden;
+}
+
+.visual {
+  position: absolute;
+  background: #ffffff;
+  border: 1px solid #d7dde6;
+}
+
+.visualHeader {
+  height: 30px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: move;
+  border-bottom: 1px solid #e6ebf2;
+}
+
+.visualTitle {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.visualDelete {
+  display: none;
+  cursor: pointer;
+}
+
+.visual.selected .visualDelete {
+  display: inline;
+}
+
+.visualBody {
+  height: calc(100% - 30px);
+}
+
+.seriesRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.seriesNameInput {
+  flex: 1;
+  background: #0c0f15;
+  color: #fff;
+  border: 1px solid #262b36;
+  padding: 6px;
+}
+
+.colorInput {
+  width: 36px;
+  height: 28px;
+  border: none;
+  cursor: pointer;
+}

@@ -1,22 +1,57 @@
 /* =========================
    Power BI Prototype Dashboard Website
    FULL IMPLEMENTATION (no skips)
-   - Fixed canvas 1280×720, no infinite scroll
-   - Visual picker dropdown (category-wise) with icons
-   - Many visuals with distinct prototypes (Chart.js + custom prototype blocks)
-   - Absolute-position visuals (overlap allowed, no pushing down)
-   - Drag + resize (smooth) + selection outline + delete only on selection
-   - Always-visible Format pane:
-       • Canvas settings when none selected
-       • Visual formatting when selected
-       • Per-series/slice colors + editable legend/series names
-   - Upload Image visual (behaves like a visual)
-   - Theme import (Power BI-like):
-       • Theme JSON import
-       • Toast “Theme import successful”
-       • Applies to existing + new visuals immediately
-   - Canvas background upload (file-based JSON format)
-   - Download/Upload dashboard (JSON), with discard confirmation logic
+
+   ✅ FEATURE INDEX (what this JS includes)
+   1) Fixed Power BI-like canvas 1280×720 (no infinite scroll; visuals don't push each other)
+   2) Visual picker dropdown (category-wise)
+   3) Supported visuals (distinct):
+      - Pie, Donut (Chart.js)
+      - Treemap (custom prototype)
+      - Ribbon (custom SVG prototype)
+      - Line (multi-trend), Area, Stacked Area
+      - Clustered/Stacked/100% Bar
+      - Clustered/Stacked/100% Column
+      - Line & Clustered Column (combo)
+      - Line & Stacked Column (combo)
+      - Scatter
+      - Upload Image (acts like a visual)
+   4) Interaction:
+      - Select visual -> selection outline
+      - Delete (✖) shows only when selected
+      - Click another visual to switch selection
+      - Click empty canvas -> deselect, Format pane stays visible (Canvas settings)
+      - Bring-to-front on selection (Power BI-like)
+   5) Drag + Resize:
+      - Smooth dragging by header
+      - Resize handles visible only when selected
+      - Clamped within canvas
+   6) Format Pane (always visible):
+      - Canvas settings when none selected:
+         • background color, opacity, background image URL/data URL
+         • upload canvas background theme JSON (Browse)
+      - Visual settings when selected:
+         • title
+         • x/y/w/h
+         • series name edits + per-series color edits
+         • reset to theme palette
+         • image replace for image visual
+   7) Theme import (Power BI-like):
+      - Import Theme JSON
+      - Toast: “Theme import successful”
+      - Applies to existing + new visuals immediately
+      - Sample theme download
+   8) Canvas background theme upload:
+      - Supported file JSON:
+        { "backgroundColor": "...", "backgroundImage": "...", "opacity": 0.9 }
+      - Applies instantly + toast
+      - Sample canvas background download
+   9) Dashboard save/load:
+      - Download dashboard JSON (includes canvas, theme, visuals, series names/colors, image base64)
+      - Upload dashboard JSON:
+          • If non-default state -> confirmation modal (Cancel / Discard & Load)
+          • If empty default dashboard -> NO confirmation modal
+      - ✅ FIX: modal never shows on page load (forced hidden)
 ========================= */
 
 (() => {
@@ -30,7 +65,6 @@
   const visualPickerMenu = document.getElementById("visualPickerMenu");
 
   const formatBody = document.getElementById("formatBody");
-
   const toastEl = document.getElementById("toast");
 
   const importThemeBtn = document.getElementById("importThemeBtn");
@@ -50,11 +84,25 @@
   const imageUploadInput = document.getElementById("imageUploadInput");
 
   // -------------------------
+  // ✅ HARD FIX: ensure discard modal is NOT visible on page load
+  // (Some HTML/CSS setups accidentally show the modal.
+  //  We force-hide it here no matter what.)
+  // -------------------------
+  if (modalBackdrop) {
+    modalBackdrop.hidden = true;
+    modalBackdrop.style.display = "none";
+    modalBackdrop.setAttribute("aria-hidden", "true");
+  }
+
+  // Also ensure upload input doesn't carry a cached value causing change events in some browsers
+  if (uploadDashboardInput) uploadDashboardInput.value = "";
+
+  // -------------------------
   // Fixed canvas size (Hard rule)
   // -------------------------
   const CANVAS_W = 1280;
   const CANVAS_H = 720;
-  statusPill.textContent = `Canvas: ${CANVAS_W} × ${CANVAS_H}`;
+  if (statusPill) statusPill.textContent = `Canvas: ${CANVAS_W} × ${CANVAS_H}`;
 
   // -------------------------
   // Dummy retail data (realistic growth Jan→Dec)
@@ -76,7 +124,6 @@
     Sales: mkGrowth(120, 220),
     Profit: mkGrowth(18, 32),
     Orders: mkGrowth(800, 1450),
-    // Regions for multi-series
     Regions: {
       "North": mkGrowth(40, 78),
       "South": mkGrowth(36, 70),
@@ -127,10 +174,6 @@
   };
 
   // Canvas background format (uploadable JSON)
-  // Supports:
-  //  - backgroundColor: string
-  //  - backgroundImage: string (URL or data URL)
-  //  - opacity: 0..1
   const sampleCanvasBg = {
     backgroundColor: "#0b0d12",
     backgroundImage: "",
@@ -138,8 +181,6 @@
   };
 
   let theme = structuredClone(defaultTheme);
-
-  // Canvas background state
   let canvasBg = structuredClone(sampleCanvasBg);
 
   // Apply initial canvas bg
@@ -148,7 +189,6 @@
   // -------------------------
   // Visual registry (picker)
   // -------------------------
-  // NOTE: prototypes must be distinct and correct-looking; some are Chart.js, some are custom visual prototypes.
   const VISUALS = [
     {
       category: "Charts",
@@ -221,23 +261,13 @@
     nextId: 1
   };
 
-  // Visual object schema (saved/loaded):
-  // {
-  //   id, type, title,
-  //   x,y,w,h,
-  //   series: [{ key, name, color, overrideColor:boolean }],
-  //   // per visual:
-  //   imageDataUrl?: string,
-  //   // internal:
-  //   chart?: Chart instance
-  // }
-
   // -------------------------
   // Helpers
   // -------------------------
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
   function showToast(msg){
+    if (!toastEl) return;
     toastEl.textContent = msg;
     toastEl.classList.add("show");
     clearTimeout(showToast._t);
@@ -277,6 +307,7 @@
     });
   }
 
+  // ✅ True default state: no visuals AND default theme AND default canvas background
   function isDefaultState(){
     return state.order.length === 0 &&
       JSON.stringify(theme) === JSON.stringify(defaultTheme) &&
@@ -296,7 +327,6 @@
 
   // Theme → Chart.js common options
   function makeChartDefaults(){
-    const titleColor = theme?.textClasses?.title?.color || theme.foreground || "#e8ecf2";
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
     const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
 
@@ -309,22 +339,12 @@
           display: true,
           labels: { color: labelColor, boxWidth: 10, boxHeight: 10, usePointStyle: true }
         },
-        title: {
-          display: false
-        },
-        tooltip: {
-          enabled: true
-        }
+        title: { display: false },
+        tooltip: { enabled: true }
       },
       scales: {
-        x: {
-          ticks: { color: labelColor },
-          grid: { color: gridColor }
-        },
-        y: {
-          ticks: { color: labelColor },
-          grid: { color: gridColor }
-        }
+        x: { ticks: { color: labelColor }, grid: { color: gridColor } },
+        y: { ticks: { color: labelColor }, grid: { color: gridColor } }
       }
     };
   }
@@ -339,6 +359,7 @@
   // Visual picker render + open/close
   // -------------------------
   function renderVisualPicker(){
+    if (!visualPickerMenu) return;
     visualPickerMenu.innerHTML = "";
 
     VISUALS.forEach(section => {
@@ -366,12 +387,10 @@
 
         btn.addEventListener("click", () => {
           closePicker();
-          if (item.type === "image") {
-            addImageVisualFlow();
-          } else {
-            addVisual(item.type);
-          }
+          if (item.type === "image") addImageVisualFlow();
+          else addVisual(item.type);
         });
+
         btn.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -388,36 +407,39 @@
   }
 
   function openPicker(){
+    if (!visualPickerMenu || !visualPickerToggle) return;
     visualPickerMenu.classList.add("open");
     visualPickerToggle.setAttribute("aria-expanded", "true");
   }
   function closePicker(){
+    if (!visualPickerMenu || !visualPickerToggle) return;
     visualPickerMenu.classList.remove("open");
     visualPickerToggle.setAttribute("aria-expanded", "false");
   }
 
-  visualPickerToggle.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (visualPickerMenu.classList.contains("open")) closePicker();
-    else openPicker();
-  });
+  if (visualPickerToggle) {
+    visualPickerToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (visualPickerMenu.classList.contains("open")) closePicker();
+      else openPicker();
+    });
+  }
 
   document.addEventListener("click", () => closePicker());
-
   renderVisualPicker();
 
   // -------------------------
   // Selection behavior (Hard rules)
   // -------------------------
-  canvas.addEventListener("mousedown", (e) => {
-    // Clicking empty canvas deselects all
-    if (e.target === canvas || e.target === canvasWatermarkOrBefore(e.target)) {
-      setSelected(null);
-    }
-  });
+  if (canvas) {
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.target === canvas || e.target === canvasWatermarkOrBefore(e.target)) {
+        setSelected(null);
+      }
+    });
+  }
 
   function canvasWatermarkOrBefore(target){
-    // canvas ::before isn't a node. watermark is.
     const wm = document.getElementById("canvasWatermark");
     return target === wm;
   }
@@ -425,7 +447,6 @@
   function setSelected(id){
     state.selectedId = id;
 
-    // Update visual DOM selection classes
     state.order.forEach(vid => {
       const el = document.getElementById(`v_${vid}`);
       if (!el) return;
@@ -433,7 +454,7 @@
       else el.classList.remove("selected");
     });
 
-    // Bring selected to front (like clicking in Power BI)
+    // Bring selected to front
     if (id && state.order.includes(id)) {
       state.order = state.order.filter(x => x !== id);
       state.order.push(id);
@@ -457,7 +478,6 @@
     const id = `vis${state.nextId++}`;
     const size = DEFAULT_SIZES[type] || { w: 520, h: 300 };
 
-    // place near top-left with slight offset to avoid full overlap on add
     const offset = (state.order.length * 18) % 140;
     const x = clamp(40 + offset, 0, CANVAS_W - size.w);
     const y = clamp(40 + offset, 0, CANVAS_H - size.h);
@@ -478,14 +498,12 @@
     canvas.appendChild(el);
     updateZOrder();
 
-    // create chart/prototype
     renderVisualContent(v);
-
-    // auto select new
     setSelected(id);
   }
 
   async function addImageVisualFlow(){
+    if (!imageUploadInput) return;
     imageUploadInput.value = "";
     imageUploadInput.click();
 
@@ -546,8 +564,6 @@
   }
 
   function buildDefaultSeries(type){
-    // By default, series colors follow theme palette.
-    // If user changes a color, we set overrideColor=true for that series.
     if (type === "pie" || type === "donut") {
       return retail.Categories.map((c, i) => ({
         key: c.name,
@@ -557,14 +573,9 @@
       }));
     }
 
-    // Multi-series visuals: Regions
     const regionKeys = Object.keys(retail.Regions);
-    // For single-series visuals that still show legend, we keep 1 dataset
     const singleSeries = [{ key: "Value", name: "Value", color: paletteColor(0), overrideColor: false }];
-
-    const multiSeries = regionKeys.map((k, i) => ({
-      key: k, name: k, color: paletteColor(i), overrideColor: false
-    }));
+    const multiSeries = regionKeys.map((k, i) => ({ key: k, name: k, color: paletteColor(i), overrideColor: false }));
 
     switch(type){
       case "line":
@@ -578,11 +589,6 @@
       case "lineStackedColumn":
         return multiSeries;
 
-      case "area":
-      case "scatter":
-      case "lineClusteredColumn":
-      case "treemap":
-      case "ribbon":
       default:
         return singleSeries;
     }
@@ -619,13 +625,11 @@
       <div class="handle e"  data-handle="e"></div>
     `;
 
-    // Selection
     el.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       setSelected(v.id);
     });
 
-    // Delete only when selected (button exists always but hidden via CSS)
     el.querySelector(".vDelete").addEventListener("click", (e) => {
       e.stopPropagation();
       removeVisual(v.id);
@@ -647,7 +651,6 @@
     const v = state.visuals.get(id);
     if (!v) return;
 
-    // Destroy chart instance if exists
     if (v.chart) {
       try { v.chart.destroy(); } catch {}
       v.chart = null;
@@ -669,7 +672,6 @@
   let dragCtx = null;
 
   function startDrag(e, id){
-    // Only left button
     if (e.button !== 0) return;
 
     const v = state.visuals.get(id);
@@ -677,17 +679,13 @@
 
     setSelected(id);
 
-    const el = document.getElementById(`v_${id}`);
-    const startX = e.clientX;
-    const startY = e.clientY;
-
     dragCtx = {
       mode: "drag",
       id,
-      startX, startY,
+      startX: e.clientX,
+      startY: e.clientY,
       origX: v.x,
-      origY: v.y,
-      el
+      origY: v.y
     };
 
     window.addEventListener("mousemove", onMove);
@@ -702,14 +700,12 @@
 
     setSelected(id);
 
-    const startX = e.clientX;
-    const startY = e.clientY;
-
     dragCtx = {
       mode: "resize",
       id,
       handle,
-      startX, startY,
+      startX: e.clientX,
+      startY: e.clientY,
       origX: v.x, origY: v.y,
       origW: v.w, origH: v.h
     };
@@ -732,7 +728,6 @@
       v.y = clamp(dragCtx.origY + dy, 0, CANVAS_H - v.h);
       applyVisualRect(v);
     } else {
-      // resize
       const minW = 220;
       const minH = 170;
 
@@ -765,8 +760,6 @@
 
       v.x = x; v.y = y; v.w = w; v.h = h;
       applyVisualRect(v);
-
-      // Chart.js needs resize
       if (v.chart) v.chart.resize();
     }
   }
@@ -774,8 +767,6 @@
   function onUp(){
     window.removeEventListener("mousemove", onMove);
     dragCtx = null;
-
-    // Keep format pane values accurate
     renderFormatPane();
   }
 
@@ -795,7 +786,6 @@
     const body = document.getElementById(`body_${v.id}`);
     if (!body) return;
 
-    // Clean existing content + destroy chart
     if (v.chart) {
       try { v.chart.destroy(); } catch {}
       v.chart = null;
@@ -823,7 +813,6 @@
       return;
     }
 
-    // Chart.js visuals
     const host = document.createElement("div");
     host.className = "chartHost";
     const c = document.createElement("canvas");
@@ -832,43 +821,23 @@
     body.appendChild(host);
 
     const ctx = c.getContext("2d");
-    const opts = makeChartDefaults();
     const ds = buildChartJsData(v);
 
     v.chart = new Chart(ctx, ds.config);
-    // Apply theme styling (legend labels, grid, etc.)
     applyThemeToSingleVisual(v);
   }
 
   function buildChartJsData(v){
-    const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
-    const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
-
     const cfgBase = {
       type: "bar",
       data: { labels: months, datasets: [] },
-      options: {
-        ...makeChartDefaults(),
-        plugins: {
-          ...makeChartDefaults().plugins,
-          legend: {
-            ...makeChartDefaults().plugins.legend,
-            labels: { ...makeChartDefaults().plugins.legend.labels, color: labelColor }
-          }
-        },
-        scales: {
-          x: { ...makeChartDefaults().scales.x, grid: { color: gridColor }, ticks: { color: labelColor } },
-          y: { ...makeChartDefaults().scales.y, grid: { color: gridColor }, ticks: { color: labelColor } }
-        }
-      }
+      options: makeChartDefaults()
     };
 
-    // helper to pull region series values
     const regionSeries = v.series.map((s) => retail.Regions[s.key] || mkGrowth(20, 60));
-
     const single = mkGrowth(30, 55);
 
-    const makeLineDs = (s, values, fill=false, stacked=false) => ({
+    const makeLineDs = (s, values, fill=false) => ({
       label: s.name,
       data: values,
       borderColor: s.color,
@@ -880,7 +849,7 @@
       borderWidth: 2
     });
 
-    const makeBarDs = (s, values, stacked=false) => ({
+    const makeBarDs = (s, values) => ({
       label: s.name,
       data: values,
       backgroundColor: withAlpha(s.color, 0.75),
@@ -898,41 +867,35 @@
         const values = retail.Categories.map(c => c.value);
         const colors = v.series.map(s => s.color);
 
-        const cfg = {
-          type: "pie",
-          data: {
-            labels,
-            datasets: [{
-              label: "Value",
-              data: values,
-              backgroundColor: colors.map(c => withAlpha(c, 0.82)),
-              borderColor: colors.map(c => withAlpha(c, 1)),
-              borderWidth: 1
-            }]
-          },
-          options: {
-            ...makeChartDefaults(),
-            plugins: {
-              ...makeChartDefaults().plugins,
-              legend: { ...makeChartDefaults().plugins.legend }
+        return {
+          config: {
+            type: "pie",
+            data: {
+              labels,
+              datasets: [{
+                label: "Value",
+                data: values,
+                backgroundColor: colors.map(c => withAlpha(c, 0.82)),
+                borderColor: colors.map(c => withAlpha(c, 1)),
+                borderWidth: 1
+              }]
             },
-            cutout: v.type === "donut" ? "58%" : "0%"
+            options: {
+              ...makeChartDefaults(),
+              cutout: v.type === "donut" ? "58%" : "0%"
+            }
           }
         };
-        return { config: cfg };
       }
 
       case "line": {
         cfgBase.type = "line";
-        cfgBase.data.labels = months;
         cfgBase.data.datasets = v.series.map((s, i) => makeLineDs(s, regionSeries[i], false));
         return { config: cfgBase };
       }
 
       case "area": {
         cfgBase.type = "line";
-        cfgBase.data.labels = months;
-        // single series (Profit)
         const s = v.series[0] || { name: "Profit", color: paletteColor(0) };
         cfgBase.data.datasets = [ makeLineDs({ ...s, name: v.series[0]?.name || "Profit" }, retail.Profit, true) ];
         return { config: cfgBase };
@@ -940,14 +903,9 @@
 
       case "stackedArea": {
         cfgBase.type = "line";
-        cfgBase.data.labels = months;
         cfgBase.options.scales.x.stacked = true;
         cfgBase.options.scales.y.stacked = true;
-
-        cfgBase.data.datasets = v.series.map((s, i) => ({
-          ...makeLineDs(s, regionSeries[i], true),
-          fill: "origin"
-        }));
+        cfgBase.data.datasets = v.series.map((s, i) => ({ ...makeLineDs(s, regionSeries[i], true), fill: "origin" }));
         return { config: cfgBase };
       }
 
@@ -961,7 +919,6 @@
           backgroundColor: withAlpha(v.series[0]?.color || paletteColor(0), 0.75),
           borderRadius: 7
         }];
-        cfgBase.options.plugins.legend.display = true;
         return { config: cfgBase };
       }
 
@@ -969,18 +926,17 @@
       case "stackedBar100": {
         cfgBase.type = "bar";
         cfgBase.options.indexAxis = "y";
-        cfgBase.data.labels = months;
         cfgBase.options.scales.x.stacked = true;
         cfgBase.options.scales.y.stacked = true;
 
-        const datasets = v.series.map((s, i) => makeBarDs(s, regionSeries[i], true));
+        const datasets = v.series.map((s, i) => makeBarDs(s, regionSeries[i]));
         cfgBase.data.datasets = datasets;
 
         if (v.type === "stackedBar100") {
+          cfgBase.data = toPercentStacked(months, datasets);
           cfgBase.options.plugins.tooltip.callbacks = {
             label: (ctx) => `${ctx.dataset.label}: ${ctx.formattedValue}%`
           };
-          cfgBase.data = toPercentStacked(months, datasets);
         }
         return { config: cfgBase };
       }
@@ -1000,60 +956,58 @@
       case "stackedColumn":
       case "stackedColumn100": {
         cfgBase.type = "bar";
-        cfgBase.data.labels = months;
         cfgBase.options.scales.x.stacked = true;
         cfgBase.options.scales.y.stacked = true;
 
-        const datasets = v.series.map((s, i) => makeBarDs(s, regionSeries[i], true));
+        const datasets = v.series.map((s, i) => makeBarDs(s, regionSeries[i]));
         cfgBase.data.datasets = datasets;
 
         if (v.type === "stackedColumn100") {
+          cfgBase.data = toPercentStacked(months, datasets);
           cfgBase.options.plugins.tooltip.callbacks = {
             label: (ctx) => `${ctx.dataset.label}: ${ctx.formattedValue}%`
           };
-          cfgBase.data = toPercentStacked(months, datasets);
         }
         return { config: cfgBase };
       }
 
       case "lineClusteredColumn": {
-        // Mixed: clustered columns (Sales) + line (Profit)
         const barColor = v.series[0]?.color || paletteColor(0);
         const lineColor = v.series[1]?.color || paletteColor(1);
 
-        const cfg = {
-          type: "bar",
-          data: {
-            labels: months,
-            datasets: [
-              {
-                type: "bar",
-                label: v.series[0]?.name || "Sales",
-                data: retail.Sales,
-                backgroundColor: withAlpha(barColor, 0.70),
-                borderColor: withAlpha(barColor, 0.95),
-                borderWidth: 1,
-                borderRadius: 6
-              },
-              {
-                type: "line",
-                label: v.series[1]?.name || "Profit",
-                data: retail.Profit,
-                borderColor: withAlpha(lineColor, 1),
-                backgroundColor: withAlpha(lineColor, 0.18),
-                pointRadius: 2,
-                tension: 0.35,
-                yAxisID: "y"
-              }
-            ]
-          },
-          options: makeChartDefaults()
+        return {
+          config: {
+            type: "bar",
+            data: {
+              labels: months,
+              datasets: [
+                {
+                  type: "bar",
+                  label: v.series[0]?.name || "Sales",
+                  data: retail.Sales,
+                  backgroundColor: withAlpha(barColor, 0.70),
+                  borderColor: withAlpha(barColor, 0.95),
+                  borderWidth: 1,
+                  borderRadius: 6
+                },
+                {
+                  type: "line",
+                  label: v.series[1]?.name || "Profit",
+                  data: retail.Profit,
+                  borderColor: withAlpha(lineColor, 1),
+                  backgroundColor: withAlpha(lineColor, 0.18),
+                  pointRadius: 2,
+                  tension: 0.35,
+                  yAxisID: "y"
+                }
+              ]
+            },
+            options: makeChartDefaults()
+          }
         };
-        return { config: cfg };
       }
 
       case "lineStackedColumn": {
-        // Mixed: stacked columns (regions) + line (Profit)
         const cfg = {
           type: "bar",
           data: {
@@ -1092,32 +1046,32 @@
       }
 
       case "scatter": {
-        // Profit vs Sales scatter, plus trend-ish look
         const s = v.series[0] || { name: "Points", color: paletteColor(0) };
         const points = months.map((m, i) => ({ x: retail.Sales[i], y: retail.Profit[i] }));
-        const cfg = {
-          type: "scatter",
-          data: {
-            datasets: [{
-              label: s.name,
-              data: points,
-              backgroundColor: withAlpha(s.color, 0.75),
-              borderColor: withAlpha(s.color, 1),
-              pointRadius: 4
-            }]
-          },
-          options: (() => {
-            const o = makeChartDefaults();
-            o.scales.x.title = { display:true, text:"Sales", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-            o.scales.y.title = { display:true, text:"Profit", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-            return o;
-          })()
+
+        return {
+          config: {
+            type: "scatter",
+            data: {
+              datasets: [{
+                label: s.name,
+                data: points,
+                backgroundColor: withAlpha(s.color, 0.75),
+                borderColor: withAlpha(s.color, 1),
+                pointRadius: 4
+              }]
+            },
+            options: (() => {
+              const o = makeChartDefaults();
+              o.scales.x.title = { display:true, text:"Sales", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
+              o.scales.y.title = { display:true, text:"Profit", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
+              return o;
+            })()
+          }
         };
-        return { config: cfg };
       }
 
       default: {
-        // fallback (shouldn't happen)
         cfgBase.type = "line";
         cfgBase.data.datasets = [ makeLineDs({ name:"Value", color: paletteColor(0) }, single, true) ];
         return { config: cfgBase };
@@ -1125,7 +1079,7 @@
     }
   }
 
-  // Treemap prototype: distinct non-Chart.js layout blocks
+  // Treemap prototype
   function makeTreemapPrototype(v){
     const wrap = document.createElement("div");
     wrap.style.width = "100%";
@@ -1137,7 +1091,7 @@
 
     const cats = v.series.length ? v.series : buildDefaultSeries("pie");
     const boxes = [
-      { label: cats[0]?.name || "Electronics", color: cats[0]?.color || paletteColor(0), span:"r2" },
+      { label: cats[0]?.name || "Electronics", color: cats[0]?.color || paletteColor(0) },
       { label: cats[1]?.name || "Fashion", color: cats[1]?.color || paletteColor(1) },
       { label: cats[2]?.name || "Grocery", color: cats[2]?.color || paletteColor(2) },
     ];
@@ -1166,7 +1120,7 @@
     return wrap;
   }
 
-  // Ribbon prototype: distinct SVG “ribbons”
+  // Ribbon prototype (SVG)
   function makeRibbonPrototype(v){
     const host = document.createElement("div");
     host.style.width = "100%";
@@ -1176,9 +1130,9 @@
     host.style.overflow = "hidden";
     host.style.background = "rgba(255,255,255,0.01)";
 
-    const series = (v.series && v.series.length > 1) ? v.series : Object.keys(retail.Regions).map((k,i)=>({
-      key:k, name:k, color: paletteColor(i), overrideColor:false
-    }));
+    const series = (v.series && v.series.length > 1)
+      ? v.series
+      : Object.keys(retail.Regions).map((k,i)=>({ key:k, name:k, color: paletteColor(i), overrideColor:false }));
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
     svg.setAttribute("viewBox","0 0 600 260");
@@ -1186,7 +1140,6 @@
     svg.style.width = "100%";
     svg.style.height = "100%";
 
-    // background grid
     const grid = document.createElementNS("http://www.w3.org/2000/svg","path");
     grid.setAttribute("d","M0 210 H600 M0 160 H600 M0 110 H600 M0 60 H600");
     grid.setAttribute("stroke", theme?.chart?.grid || "rgba(255,255,255,0.10)");
@@ -1194,7 +1147,6 @@
     grid.setAttribute("fill","none");
     svg.appendChild(grid);
 
-    // Ribbons (simple bezier bands)
     const bands = [
       { y0: 60,  y1: 90,  wobble: 18 },
       { y0: 100, y1: 135, wobble: 22 },
@@ -1209,11 +1161,9 @@
       const path = document.createElementNS("http://www.w3.org/2000/svg","path");
       const w = b.wobble;
 
-      // top curve
       const dTop = `M0 ${b.y0}
         C150 ${b.y0-w}, 300 ${b.y0+w}, 450 ${b.y0-w}
         S600 ${b.y0+w}, 600 ${b.y0}`;
-      // bottom curve
       const dBot = `L600 ${b.y1}
         C450 ${b.y1+w}, 300 ${b.y1-w}, 150 ${b.y1+w}
         S0 ${b.y1-w}, 0 ${b.y1} Z`;
@@ -1224,7 +1174,6 @@
       path.setAttribute("stroke-width", "1.2");
       svg.appendChild(path);
 
-      // label
       const t = document.createElementNS("http://www.w3.org/2000/svg","text");
       t.setAttribute("x","14");
       t.setAttribute("y", String(b.y0 + 18));
@@ -1240,16 +1189,12 @@
   }
 
   function withAlpha(hex, a){
-    // Accept rgb/rgba too
     if (!hex) return `rgba(255,255,255,${a})`;
     if (hex.startsWith("rgba")) return hex;
     if (hex.startsWith("rgb(")) return hex.replace("rgb(", "rgba(").replace(")", `,${a})`);
 
     const h = hex.replace("#","").trim();
-    const full = h.length === 3
-      ? h.split("").map(ch => ch+ch).join("")
-      : h.padEnd(6, "0").slice(0,6);
-
+    const full = h.length === 3 ? h.split("").map(ch => ch+ch).join("") : h.padEnd(6, "0").slice(0,6);
     const r = parseInt(full.slice(0,2), 16);
     const g = parseInt(full.slice(2,4), 16);
     const b = parseInt(full.slice(4,6), 16);
@@ -1257,9 +1202,7 @@
   }
 
   function toPercentStacked(labels, datasets){
-    // Convert stacked values into 100% per category index
     const sums = labels.map((_, i) => datasets.reduce((acc, d) => acc + (Number(d.data[i]) || 0), 0));
-
     const newDatasets = datasets.map(d => ({
       ...d,
       data: d.data.map((v, i) => {
@@ -1267,7 +1210,6 @@
         return Math.round((Number(v) / s) * 100);
       })
     }));
-
     return { labels, datasets: newDatasets };
   }
 
@@ -1275,7 +1217,6 @@
   // Theme apply
   // -------------------------
   function applyThemeToSingleVisual(v){
-    // For non-chart prototypes, just re-render them to update colors
     if (v.type === "treemap" || v.type === "ribbon") {
       renderVisualContent(v);
       return;
@@ -1285,27 +1226,21 @@
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
     const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
 
-    // legend label color
     if (v.chart.options?.plugins?.legend?.labels) {
       v.chart.options.plugins.legend.labels.color = labelColor;
     }
-
-    // scales
     if (v.chart.options?.scales?.x?.ticks) v.chart.options.scales.x.ticks.color = labelColor;
     if (v.chart.options?.scales?.y?.ticks) v.chart.options.scales.y.ticks.color = labelColor;
     if (v.chart.options?.scales?.x?.grid) v.chart.options.scales.x.grid.color = gridColor;
     if (v.chart.options?.scales?.y?.grid) v.chart.options.scales.y.grid.color = gridColor;
 
-    // apply dataset colors from v.series if relevant
     syncSeriesToChart(v);
-
     v.chart.update();
   }
 
   function syncSeriesToChart(v){
     if (!v.chart) return;
 
-    // pie/donut: dataset[0].backgroundColor = series colors
     if (v.type === "pie" || v.type === "donut") {
       const ds = v.chart.data.datasets?.[0];
       if (!ds) return;
@@ -1315,8 +1250,6 @@
       return;
     }
 
-    // treemap/ribbon handled elsewhere (not chart)
-    // scatter: dataset label + point color
     if (v.type === "scatter") {
       const ds = v.chart.data.datasets?.[0];
       if (!ds) return;
@@ -1326,7 +1259,6 @@
       return;
     }
 
-    // line/area/stacked area: dataset count matches series
     if (v.type === "line" || v.type === "area" || v.type === "stackedArea") {
       const dsets = v.chart.data.datasets || [];
       dsets.forEach((ds, i) => {
@@ -1339,7 +1271,6 @@
       return;
     }
 
-    // bar/column + stacked variants: multiple datasets often map series
     if (["stackedBar","stackedBar100","stackedColumn","stackedColumn100"].includes(v.type)) {
       const dsets = v.chart.data.datasets || [];
       dsets.forEach((ds, i) => {
@@ -1352,7 +1283,6 @@
       return;
     }
 
-    // clusteredBar/clusteredColumn are single dataset
     if (["clusteredBar","clusteredColumn"].includes(v.type)) {
       const ds = v.chart.data.datasets?.[0];
       if (!ds) return;
@@ -1361,10 +1291,8 @@
       return;
     }
 
-    // combos:
     if (v.type === "lineClusteredColumn") {
       const dsets = v.chart.data.datasets || [];
-      // dataset 0: bar, dataset 1: line
       if (dsets[0]) {
         const s0 = v.series[0] || { name:"Sales", color: paletteColor(0) };
         dsets[0].label = s0.name;
@@ -1382,7 +1310,6 @@
 
     if (v.type === "lineStackedColumn") {
       const dsets = v.chart.data.datasets || [];
-      // first N bars map to v.series; last is line "Profit" (kept themed)
       const n = v.series.length;
       for (let i=0; i<n; i++){
         if (!dsets[i]) continue;
@@ -1391,26 +1318,19 @@
         dsets[i].backgroundColor = withAlpha(s.color, 0.68);
         dsets[i].borderColor = withAlpha(s.color, 0.92);
       }
-      // keep last line visible; user colors series bars only (by requirement)
       return;
     }
   }
 
   function applyThemeEverywhere(){
-    // Update app background/foreground if provided (Power BI theme-ish)
-    // Keep the UI stable: just use theme colors lightly.
-    // We still apply chart/series palette strongly (required).
-    // Update non-overridden series colors from palette:
     state.order.forEach((id) => {
       const v = state.visuals.get(id);
       if (!v) return;
 
-      // if series exists, update those not overridden
       v.series?.forEach((s, i) => {
         if (!s.overrideColor) s.color = paletteColor(i);
       });
 
-      // update title label color (format pane shows it; header remains clean)
       applyThemeToSingleVisual(v);
     });
 
@@ -1424,7 +1344,6 @@
     const selected = state.selectedId ? state.visuals.get(state.selectedId) : null;
 
     if (!selected) {
-      // Canvas settings view
       formatBody.innerHTML = `
         <div class="fSection">
           <div class="fHeader">
@@ -1489,7 +1408,6 @@
         </div>
       `;
 
-      // Hook canvas apply
       document.getElementById("applyCanvasBgBtn").onclick = () => {
         const c = document.getElementById("canvasBgColor").value.trim();
         const o = Number(document.getElementById("canvasBgOpacity").value.trim());
@@ -1503,7 +1421,6 @@
         showToast("Canvas background updated");
       };
 
-      // Browse canvas bg
       const browseBtn = document.getElementById("browseCanvasBgBtn");
       const input = document.getElementById("canvasBgUploadInput");
       browseBtn.onclick = () => { input.value=""; input.click(); };
@@ -1521,7 +1438,6 @@
         }
       };
 
-      // Theme buttons
       document.getElementById("importThemeBtn2").onclick = () => importThemeBtn.click();
       document.getElementById("resetThemeBtn").onclick = () => {
         theme = structuredClone(defaultTheme);
@@ -1611,7 +1527,6 @@
 
     formatBody.innerHTML = posHtml + colorsHtml;
 
-    // Hook: title + position
     document.getElementById("fmtTitle").oninput = (e) => {
       v.title = e.target.value;
       const t = document.getElementById(`title_${v.id}`);
@@ -1636,7 +1551,6 @@
 
     document.getElementById("deleteBtn").onclick = () => removeVisual(v.id);
 
-    // Hook: series editor
     if (v.type !== "image") {
       v.series.forEach((s, idx) => {
         const nameEl = document.getElementById(`sname_${v.id}_${idx}`);
@@ -1645,7 +1559,7 @@
         if (nameEl) {
           nameEl.oninput = (e) => {
             s.name = e.target.value;
-            applyThemeToSingleVisual(v); // updates legend labels
+            applyThemeToSingleVisual(v);
           };
         }
         if (colEl) {
@@ -1671,7 +1585,6 @@
       }
     }
 
-    // Hook: replace image
     if (v.type === "image") {
       document.getElementById("replaceImageBtn").onclick = () => {
         imageUploadInput.value = "";
@@ -1701,13 +1614,11 @@
   }
 
   function ensureHex(c){
-    // If rgba/rgb, return palette as fallback (color input needs hex)
     if (!c) return "#3b82f6";
     if (c.startsWith("#")) {
       if (c.length === 4) return "#" + c.slice(1).split("").map(x=>x+x).join("");
       return c.slice(0,7);
     }
-    // fallback: use palette color
     return paletteColor(0);
   }
 
@@ -1729,35 +1640,33 @@
   // -------------------------
   // Theme import (Power BI-like)
   // -------------------------
-  importThemeBtn.addEventListener("click", () => {
-    importThemeInput.value = "";
-    importThemeInput.click();
-  });
+  if (importThemeBtn) {
+    importThemeBtn.addEventListener("click", () => {
+      importThemeInput.value = "";
+      importThemeInput.click();
+    });
+  }
 
-  importThemeInput.addEventListener("change", async () => {
-    const f = importThemeInput.files?.[0];
-    if (!f) return;
-    try{
-      const t = await readJsonFile(f);
-      theme = normalizeTheme(t);
-      applyThemeEverywhere();
-      showToast("Theme import successful");
-    }catch{
-      showToast("Invalid theme JSON");
-    }
-  });
+  if (importThemeInput) {
+    importThemeInput.addEventListener("change", async () => {
+      const f = importThemeInput.files?.[0];
+      if (!f) return;
+      try{
+        const t = await readJsonFile(f);
+        theme = normalizeTheme(t);
+        applyThemeEverywhere();
+        showToast("Theme import successful");
+      }catch{
+        showToast("Invalid theme JSON");
+      }
+    });
+  }
 
   function normalizeTheme(t){
     const out = structuredClone(defaultTheme);
     if (!t || typeof t !== "object") return out;
 
     if (typeof t.name === "string") out.name = t.name;
-
-    // Support Power BI theme generator-like schema:
-    // - dataColors: array
-    // - foreground/background
-    // - textClasses.title/label
-    // (Your uploaded sample.json matches this)
     if (Array.isArray(t.dataColors) && t.dataColors.length) out.dataColors = t.dataColors.slice();
     if (typeof t.background === "string") out.background = t.background;
     if (typeof t.foreground === "string") out.foreground = t.foreground;
@@ -1778,44 +1687,68 @@
 
   // -------------------------
   // Download/Upload dashboard (with discard confirm)
+  // ✅ FIX: confirmation modal only on Upload click AND when non-default state
+  // ✅ Modal is forced hidden until needed
   // -------------------------
-  downloadDashboardBtn.addEventListener("click", () => {
-    const payload = serializeDashboard();
-    downloadObjectAsJson(payload, "dashboard.json");
-    showToast("Dashboard downloaded");
-  });
+  if (downloadDashboardBtn) {
+    downloadDashboardBtn.addEventListener("click", () => {
+      const payload = serializeDashboard();
+      downloadObjectAsJson(payload, "dashboard.json");
+      showToast("Dashboard downloaded");
+    });
+  }
 
-  uploadDashboardBtn.addEventListener("click", () => {
-    uploadDashboardInput.value = "";
-    uploadDashboardInput.click();
-  });
+  if (uploadDashboardBtn) {
+    uploadDashboardBtn.addEventListener("click", () => {
+      // user explicitly initiated upload
+      uploadDashboardInput.value = "";
+      uploadDashboardInput.click();
+    });
+  }
 
-  uploadDashboardInput.addEventListener("change", async () => {
-    const f = uploadDashboardInput.files?.[0];
-    if (!f) return;
+  if (uploadDashboardInput) {
+    uploadDashboardInput.addEventListener("change", async () => {
+      const f = uploadDashboardInput.files?.[0];
+      if (!f) return;
 
-    const loadIt = async () => {
-      try{
-        const obj = await readJsonFile(f);
-        await loadDashboard(obj);
-        showToast("Dashboard loaded");
-      }catch{
-        showToast("Invalid dashboard file");
-      }
-    };
+      const loadIt = async () => {
+        try{
+          const obj = await readJsonFile(f);
+          await loadDashboard(obj);
+          showToast("Dashboard loaded");
+        }catch{
+          showToast("Invalid dashboard file");
+        } finally {
+          uploadDashboardInput.value = "";
+        }
+      };
 
-    // Discard confirmation only if NOT empty/default
-    if (!isDefaultState()) {
-      openDiscardModal(loadIt);
-    } else {
-      loadIt();
-    }
-  });
+      // ✅ EXACT requirement:
+      // - If empty default dashboard -> NO popup
+      // - If ANY visuals OR non-default state -> popup
+      if (!isDefaultState()) openDiscardModal(loadIt);
+      else loadIt();
+    });
+  }
 
   function openDiscardModal(onConfirm){
-    modalBackdrop.hidden = false;
+    if (!modalBackdrop) return;
 
-    const close = () => { modalBackdrop.hidden = true; };
+    // ✅ never show this if the dashboard is empty default
+    if (isDefaultState()) {
+      onConfirm?.();
+      return;
+    }
+
+    modalBackdrop.hidden = false;
+    modalBackdrop.style.display = "flex";
+    modalBackdrop.setAttribute("aria-hidden", "false");
+
+    const close = () => {
+      modalBackdrop.hidden = true;
+      modalBackdrop.style.display = "none";
+      modalBackdrop.setAttribute("aria-hidden", "true");
+    };
 
     modalCancelBtn.onclick = () => close();
     modalConfirmBtn.onclick = async () => {
@@ -1857,22 +1790,18 @@
   }
 
   async function loadDashboard(obj){
-    // Clear current
     clearAllVisuals();
 
-    // Apply canvas + theme
     if (obj?.canvas?.background) {
       canvasBg = normalizeCanvasBg(obj.canvas.background);
-      applyCanvasBackground();
     } else {
       canvasBg = structuredClone(sampleCanvasBg);
-      applyCanvasBackground();
     }
+    applyCanvasBackground();
 
     theme = normalizeTheme(obj?.theme || defaultTheme);
-    applyThemeEverywhere(); // sets palette + styling
+    applyThemeEverywhere();
 
-    // Restore visuals
     const visuals = Array.isArray(obj?.visuals) ? obj.visuals : [];
     visuals.forEach(vs => {
       const id = String(vs.id || `vis${state.nextId++}`);
@@ -1884,17 +1813,18 @@
         y: clamp(Number(vs.y)||40, 0, CANVAS_H-170),
         w: clamp(Number(vs.w)||DEFAULT_SIZES[vs.type]?.w||520, 220, CANVAS_W),
         h: clamp(Number(vs.h)||DEFAULT_SIZES[vs.type]?.h||300, 170, CANVAS_H),
-        series: Array.isArray(vs.series) ? vs.series.map((s,i)=>({
-          key: s.key || s.name || `S${i+1}`,
-          name: s.name || s.key || `Series ${i+1}`,
-          color: s.color || paletteColor(i),
-          overrideColor: !!s.overrideColor
-        })) : buildDefaultSeries(vs.type),
+        series: Array.isArray(vs.series)
+          ? vs.series.map((s,i)=>({
+              key: s.key || s.name || `S${i+1}`,
+              name: s.name || s.key || `Series ${i+1}`,
+              color: s.color || paletteColor(i),
+              overrideColor: !!s.overrideColor
+            }))
+          : buildDefaultSeries(vs.type),
         imageDataUrl: vs.type === "image" ? (vs.imageDataUrl || "") : undefined,
         chart: null
       };
 
-      // ensure series colors for non-overrides align with current theme palette
       v.series?.forEach((s,i)=>{
         if (!s.overrideColor) s.color = paletteColor(i);
       });
@@ -1909,13 +1839,10 @@
 
     updateZOrder();
     setSelected(null);
-
-    // Ensure nextId doesn't collide
     state.nextId = Math.max(state.nextId, state.order.length + 1);
   }
 
   function clearAllVisuals(){
-    // destroy charts + clear DOM
     state.order.forEach(id => {
       const v = state.visuals.get(id);
       if (v?.chart) {
@@ -1925,23 +1852,25 @@
     state.visuals.clear();
     state.order = [];
     state.selectedId = null;
-
-    // remove visual elements
     Array.from(canvas.querySelectorAll(".visual")).forEach(el => el.remove());
   }
 
   // -------------------------
   // Sample downloads
   // -------------------------
-  downloadSampleThemeBtn.addEventListener("click", () => {
-    downloadObjectAsJson(sampleTheme, "sample-theme.json");
-    showToast("Sample theme downloaded");
-  });
+  if (downloadSampleThemeBtn) {
+    downloadSampleThemeBtn.addEventListener("click", () => {
+      downloadObjectAsJson(sampleTheme, "sample-theme.json");
+      showToast("Sample theme downloaded");
+    });
+  }
 
-  downloadSampleCanvasBgBtn.addEventListener("click", () => {
-    downloadObjectAsJson(sampleCanvasBg, "sample-canvas-background.json");
-    showToast("Sample canvas background downloaded");
-  });
+  if (downloadSampleCanvasBgBtn) {
+    downloadSampleCanvasBgBtn.addEventListener("click", () => {
+      downloadObjectAsJson(sampleCanvasBg, "sample-canvas-background.json");
+      showToast("Sample canvas background downloaded");
+    });
+  }
 
   // -------------------------
   // Safety: Escape helpers
@@ -1962,12 +1891,7 @@
   renderFormatPane();
 
   // -------------------------
-  // Theme import successful popup matches requirement
-  // (handled via showToast)
-  // -------------------------
-
-  // -------------------------
-  // OPTIONAL: Load a couple of starter visuals for demo (comment out if you want empty start)
+  // IMPORTANT: Empty dashboard on load (no starter visuals)
   // -------------------------
   // addVisual("line");
   // addVisual("donut");

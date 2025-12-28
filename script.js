@@ -3,7 +3,7 @@
    FULL IMPLEMENTATION (no skips)
 
    ✅ FEATURE INDEX (what this JS includes)
-   1) Fixed Power BI-like canvas 1280×720 (no infinite scroll; visuals don't push each other)
+   1) Fixed Power BI-like canvas (dynamic size with presets) — no infinite scroll; visuals don't push each other
    2) Visual picker dropdown (category-wise)
    3) Supported visuals (distinct):
       - Pie, Donut (Chart.js)
@@ -15,6 +15,10 @@
       - Line & Clustered Column (combo)
       - Line & Stacked Column (combo)
       - Scatter
+      - KPI (prototype)
+      - Card (prototype)
+      - Multi-row Card (prototype)
+      - Text Box (editable + formatting)
       - Upload Image (acts like a visual)
    4) Interaction:
       - Select visual -> selection outline
@@ -25,9 +29,11 @@
    5) Drag + Resize:
       - Smooth dragging by header
       - Resize handles visible only when selected
-      - Clamped within canvas
+      - Clamped within canvas on ALL sides (left/top/right/bottom)
    6) Format Pane (always visible):
       - Canvas settings when none selected:
+         • preset selector (16:9: 1280×720, 1920×1080)
+         • width/height editable + apply
          • background color, opacity, background image URL/data URL
          • upload canvas background theme JSON (Browse)
       - Visual settings when selected:
@@ -36,6 +42,7 @@
          • series name edits + per-series color edits
          • reset to theme palette
          • image replace for image visual
+         • text box formatting
    7) Theme import (Power BI-like):
       - Import Theme JSON
       - Toast: “Theme import successful”
@@ -47,14 +54,33 @@
       - Applies instantly + toast
       - Sample canvas background download
    9) Dashboard save/load:
-      - Download dashboard JSON (includes canvas, theme, visuals, series names/colors, image base64)
+      - Download dashboard JSON (includes canvas, theme, visuals, series names/colors, image base64, text box props)
       - Upload dashboard JSON:
           • If non-default state -> confirmation modal (Cancel / Discard & Load)
           • If empty default dashboard -> NO confirmation modal
-      - ✅ FIX: modal never shows on page load (forced hidden)
+      - ✅ Modal never shows on page load (forced hidden)
+  10) Power BI-like “Fit to screen”:
+      - Canvas scales down to always fully visible (no canvas clipped off screen)
 ========================= */
 
 (() => {
+  // -------------------------
+  // Helpers first (avoid any init-order issues)
+  // -------------------------
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function escapeHtml(str){
+    return String(str ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+  function escapeAttr(str){ return escapeHtml(str).replaceAll("\n"," "); }
+
   // -------------------------
   // DOM
   // -------------------------
@@ -83,33 +109,85 @@
 
   const imageUploadInput = document.getElementById("imageUploadInput");
 
+  // A viewport/container (used for fit-to-screen). Falls back safely.
+  const canvasViewport =
+    document.getElementById("canvasViewport") ||
+    document.getElementById("canvasHost") ||
+    canvas?.parentElement;
+
   // -------------------------
   // ✅ HARD FIX: ensure discard modal is NOT visible on page load
-  // (Some HTML/CSS setups accidentally show the modal.
-  //  We force-hide it here no matter what.)
   // -------------------------
   if (modalBackdrop) {
     modalBackdrop.hidden = true;
     modalBackdrop.style.display = "none";
     modalBackdrop.setAttribute("aria-hidden", "true");
   }
-
-  // Also ensure upload input doesn't carry a cached value causing change events in some browsers
   if (uploadDashboardInput) uploadDashboardInput.value = "";
 
   // -------------------------
-  // Fixed canvas size (Hard rule)
+  // Canvas size (dynamic + presets)
   // -------------------------
-  const CANVAS_W = 1280;
-  const CANVAS_H = 720;
-  if (statusPill) statusPill.textContent = `Canvas: ${CANVAS_W} × ${CANVAS_H}`;
+  const CANVAS_PRESETS = [
+    { key: "p1280", label: "16:9 (1280 × 720)", w: 1280, h: 720 },
+    { key: "p1920", label: "16:9 (1920 × 1080)", w: 1920, h: 1080 }
+  ];
+
+  let canvasW = 1280;
+  let canvasH = 720;
+  let canvasPresetKey = "p1280"; // default 16:9
+
+  function updateStatusPill(){
+    if (statusPill) statusPill.textContent = `Canvas: ${canvasW} × ${canvasH}`;
+  }
+
+  function applyCanvasSize(){
+    if (!canvas) return;
+
+    canvas.style.width = `${canvasW}px`;
+    canvas.style.height = `${canvasH}px`;
+
+    // keep right side clamp perfect after resizing
+    clampAllVisualsInsideCanvas();
+
+    // update UI + fit-to-screen
+    updateStatusPill();
+    fitCanvasToScreen();
+    renderFormatPane();
+  }
+
+  // Fit canvas to visible area like Power BI "fit to page"
+  function fitCanvasToScreen(){
+    if (!canvas || !canvasViewport) return;
+
+    const rect = canvasViewport.getBoundingClientRect();
+    const padding = 18;
+
+    const availW = Math.max(100, rect.width - padding * 2);
+    const availH = Math.max(100, rect.height - padding * 2);
+
+    const sx = availW / canvasW;
+    const sy = availH / canvasH;
+    const scale = Math.min(1, sx, sy);
+
+    // scale the canvas itself (children scale too)
+    canvas.style.transformOrigin = "top left";
+    canvas.style.transform = `scale(${scale})`;
+
+    // reserve space in layout so it doesn't clip
+    // (we set the parent min size if possible)
+    if (canvasViewport) {
+      canvasViewport.style.overflow = "hidden";
+    }
+  }
+
+  window.addEventListener("resize", () => fitCanvasToScreen());
 
   // -------------------------
   // Dummy retail data (realistic growth Jan→Dec)
   // -------------------------
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-  // base gradual growth, approx +80% YoY by end (visual only)
   const mkGrowth = (start, end) => {
     const arr = [];
     for (let i=0; i<12; i++){
@@ -140,7 +218,7 @@
   };
 
   // -------------------------
-  // Theme (Power BI-like) - applied globally
+  // Theme (Power BI-like)
   // -------------------------
   const defaultTheme = {
     name: "Default Dark Prototype",
@@ -157,7 +235,6 @@
     }
   };
 
-  // Sample theme JSON (downloadable)
   const sampleTheme = {
     name: "Green Theme (Sample)",
     dataColors: ["#22c55e","#16a34a","#84cc16","#10b981","#06b6d4","#f59e0b","#ef4444","#a855f7"],
@@ -173,7 +250,6 @@
     }
   };
 
-  // Canvas background format (uploadable JSON)
   const sampleCanvasBg = {
     backgroundColor: "#0b0d12",
     backgroundImage: "",
@@ -182,91 +258,6 @@
 
   let theme = structuredClone(defaultTheme);
   let canvasBg = structuredClone(sampleCanvasBg);
-
-  // Apply initial canvas bg
-  applyCanvasBackground();
-
-  // -------------------------
-  // Visual registry (picker)
-  // -------------------------
-  const VISUALS = [
-    {
-      category: "Charts",
-      items: [
-        { type: "pie", name: "Pie Chart", icon: "◔" },
-        { type: "donut", name: "Donut Chart", icon: "◕" },
-        { type: "treemap", name: "Treemap", icon: "▧" },
-        { type: "ribbon", name: "Ribbon Chart", icon: "〰" },
-
-        { type: "line", name: "Line Chart (multiple trends)", icon: "╱" },
-        { type: "area", name: "Area Chart", icon: "▱" },
-        { type: "stackedArea", name: "Stacked Area Chart", icon: "▰" },
-
-        { type: "clusteredBar", name: "Clustered Bar Chart", icon: "▤" },
-        { type: "stackedBar", name: "Stacked Bar Chart", icon: "▥" },
-        { type: "stackedBar100", name: "100% Stacked Bar Chart", icon: "▦" },
-
-        { type: "clusteredColumn", name: "Clustered Column Chart", icon: "▮" },
-        { type: "stackedColumn", name: "Stacked Column Chart", icon: "▯" },
-        { type: "stackedColumn100", name: "100% Stacked Column Chart", icon: "▰" },
-
-        { type: "lineClusteredColumn", name: "Line & Clustered Column Chart", icon: "⟂" },
-        { type: "lineStackedColumn", name: "Line & Stacked Column Chart", icon: "⟋" },
-
-        { type: "scatter", name: "Scatter Chart", icon: "∘" },
-      ]
-    },
-    {
-      category: "Other",
-      items: [
-        { type: "image", name: "Upload Image", icon: "🖼" }
-      ]
-    }
-  ];
-
-  // Default visual sizes (medium, readable, not full width)
-  const DEFAULT_SIZES = {
-    pie: { w: 360, h: 270 },
-    donut: { w: 360, h: 270 },
-    treemap: { w: 420, h: 280 },
-    ribbon: { w: 460, h: 280 },
-
-    line: { w: 520, h: 300 },
-    area: { w: 520, h: 300 },
-    stackedArea: { w: 520, h: 300 },
-
-    clusteredBar: { w: 520, h: 300 },
-    stackedBar: { w: 520, h: 300 },
-    stackedBar100: { w: 520, h: 300 },
-
-    clusteredColumn: { w: 520, h: 300 },
-    stackedColumn: { w: 520, h: 300 },
-    stackedColumn100: { w: 520, h: 300 },
-
-    lineClusteredColumn: { w: 560, h: 320 },
-    lineStackedColumn: { w: 560, h: 320 },
-
-    scatter: { w: 520, h: 300 },
-
-    image: { w: 420, h: 260 }
-  };
-
-  // -------------------------
-  // App state
-  // -------------------------
-  const state = {
-    visuals: new Map(), // id -> visual object
-    order: [],          // z-order
-    selectedId: null,
-    nextId: 1
-  };
-
-  // -------------------------
-  // Helpers
-  // -------------------------
-  function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
-}
 
   function showToast(msg){
     if (!toastEl) return;
@@ -309,11 +300,11 @@
     });
   }
 
-  // ✅ True default state: no visuals AND default theme AND default canvas background
   function isDefaultState(){
     return state.order.length === 0 &&
       JSON.stringify(theme) === JSON.stringify(defaultTheme) &&
-      JSON.stringify(canvasBg) === JSON.stringify(sampleCanvasBg);
+      JSON.stringify(canvasBg) === JSON.stringify(sampleCanvasBg) &&
+      canvasW === 1280 && canvasH === 720;
   }
 
   function applyCanvasBackground(){
@@ -327,10 +318,17 @@
     ));
   }
 
-  // Theme → Chart.js common options
+  // Apply initial canvas bg + size
+  applyCanvasBackground();
+  updateStatusPill();
+  applyCanvasSize();
+
+  // -------------------------
+  // Chart defaults
+  // ✅ (1) remove background gridlines + remove axis border lines
+  // -------------------------
   function makeChartDefaults(){
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
-    const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
 
     return {
       responsive: true,
@@ -345,17 +343,112 @@
         tooltip: { enabled: true }
       },
       scales: {
-        x: { ticks: { color: labelColor }, grid: { color: gridColor } },
-        y: { ticks: { color: labelColor }, grid: { color: gridColor } }
+        x: {
+          ticks: { color: labelColor },
+          grid: { display: false },     // ✅ no grid lines
+          border: { display: false }    // ✅ no axis line
+        },
+        y: {
+          ticks: { color: labelColor },
+          grid: { display: false },     // ✅ no grid lines
+          border: { display: false }    // ✅ no axis line
+        }
       }
     };
   }
 
-  // Generate palette color for series index
   function paletteColor(i){
     const arr = theme?.dataColors?.length ? theme.dataColors : defaultTheme.dataColors;
     return arr[i % arr.length];
   }
+
+  // -------------------------
+  // Visual picker registry
+  // -------------------------
+  const VISUALS = [
+    {
+      category: "Charts",
+      items: [
+        { type: "pie", name: "Pie Chart", icon: "◔" },
+        { type: "donut", name: "Donut Chart", icon: "◕" },
+        { type: "treemap", name: "Treemap", icon: "▧" },
+        { type: "ribbon", name: "Ribbon Chart", icon: "〰" },
+
+        { type: "line", name: "Line Chart (multiple trends)", icon: "╱" },
+        { type: "area", name: "Area Chart", icon: "▱" },
+        { type: "stackedArea", name: "Stacked Area Chart", icon: "▰" },
+
+        { type: "clusteredBar", name: "Clustered Bar Chart", icon: "▤" },
+        { type: "stackedBar", name: "Stacked Bar Chart", icon: "▥" },
+        { type: "stackedBar100", name: "100% Stacked Bar Chart", icon: "▦" },
+
+        { type: "clusteredColumn", name: "Clustered Column Chart", icon: "▮" },
+        { type: "stackedColumn", name: "Stacked Column Chart", icon: "▯" },
+        { type: "stackedColumn100", name: "100% Stacked Column Chart", icon: "▰" },
+
+        { type: "lineClusteredColumn", name: "Line & Clustered Column Chart", icon: "⟂" },
+        { type: "lineStackedColumn", name: "Line & Stacked Column Chart", icon: "⟋" },
+
+        { type: "scatter", name: "Scatter Chart", icon: "∘" },
+      ]
+    },
+    {
+      category: "Cards",
+      items: [
+        { type: "kpi", name: "KPI", icon: "📈" },
+        { type: "card", name: "Card", icon: "🧾" },
+        { type: "multirowCard", name: "Multi-row Card", icon: "📋" },
+        { type: "textBox", name: "Text Box", icon: "🅣" }
+      ]
+    },
+    {
+      category: "Other",
+      items: [
+        { type: "image", name: "Upload Image", icon: "🖼" }
+      ]
+    }
+  ];
+
+  const DEFAULT_SIZES = {
+    pie: { w: 360, h: 270 },
+    donut: { w: 360, h: 270 },
+    treemap: { w: 420, h: 280 },
+    ribbon: { w: 460, h: 280 },
+
+    line: { w: 520, h: 300 },
+    area: { w: 520, h: 300 },
+    stackedArea: { w: 520, h: 300 },
+
+    clusteredBar: { w: 520, h: 300 },
+    stackedBar: { w: 520, h: 300 },
+    stackedBar100: { w: 520, h: 300 },
+
+    clusteredColumn: { w: 520, h: 300 },
+    stackedColumn: { w: 520, h: 300 },
+    stackedColumn100: { w: 520, h: 300 },
+
+    lineClusteredColumn: { w: 560, h: 320 },
+    lineStackedColumn: { w: 560, h: 320 },
+
+    scatter: { w: 520, h: 300 },
+
+    kpi: { w: 320, h: 180 },
+    card: { w: 300, h: 150 },
+    multirowCard: { w: 380, h: 220 },
+    textBox: { w: 360, h: 200 },
+
+    image: { w: 420, h: 260 }
+  };
+
+  // -------------------------
+  // App state
+  // -------------------------
+  const state = {
+    visuals: new Map(),
+    order: [],
+    selectedId: null,
+    nextId: 1
+  };
 
   // -------------------------
   // Visual picker render + open/close
@@ -431,7 +524,7 @@
   renderVisualPicker();
 
   // -------------------------
-  // Selection behavior (Hard rules)
+  // Selection behavior
   // -------------------------
   if (canvas) {
     canvas.addEventListener("mousedown", (e) => {
@@ -456,7 +549,6 @@
       else el.classList.remove("selected");
     });
 
-    // Bring selected to front
     if (id && state.order.includes(id)) {
       state.order = state.order.filter(x => x !== id);
       state.order.push(id);
@@ -481,8 +573,8 @@
     const size = DEFAULT_SIZES[type] || { w: 520, h: 300 };
 
     const offset = (state.order.length * 18) % 140;
-    const x = clamp(40 + offset, 0, CANVAS_W - size.w);
-    const y = clamp(40 + offset, 0, CANVAS_H - size.h);
+    const x = clamp(40 + offset, 0, canvasW - size.w);
+    const y = clamp(40 + offset, 0, canvasH - size.h);
 
     const v = {
       id,
@@ -490,7 +582,11 @@
       title: defaultTitleFor(type),
       x, y, w: size.w, h: size.h,
       series: buildDefaultSeries(type),
-      chart: null
+      chart: null,
+
+      // Card/KPI/Text extras
+      card: buildDefaultCard(type),
+      text: buildDefaultText(type)
     };
 
     state.visuals.set(id, v);
@@ -518,8 +614,8 @@
       const id = `vis${state.nextId++}`;
       const size = DEFAULT_SIZES.image;
       const offset = (state.order.length * 18) % 140;
-      const x = clamp(40 + offset, 0, CANVAS_W - size.w);
-      const y = clamp(40 + offset, 0, CANVAS_H - size.h);
+      const x = clamp(40 + offset, 0, canvasW - size.w);
+      const y = clamp(40 + offset, 0, canvasH - size.h);
 
       const v = {
         id,
@@ -528,7 +624,9 @@
         x, y, w: size.w, h: size.h,
         series: [],
         imageDataUrl: dataUrl,
-        chart: null
+        chart: null,
+        card: null,
+        text: null
       };
 
       state.visuals.set(id, v);
@@ -560,7 +658,12 @@
       stackedColumn100: "Orders Share by Region (100% Column)",
       lineClusteredColumn: "Sales + Profit (Combo)",
       lineStackedColumn: "Sales + Regional Mix (Combo)",
-      scatter: "Profit vs Sales (Scatter)"
+      scatter: "Profit vs Sales (Scatter)",
+
+      kpi: "KPI",
+      card: "Card",
+      multirowCard: "Multi-row card",
+      textBox: "Text box"
     };
     return map[type] || "Visual";
   }
@@ -582,10 +685,8 @@
     switch(type){
       case "line":
       case "stackedArea":
-      case "clusteredBar":
       case "stackedBar":
       case "stackedBar100":
-      case "clusteredColumn":
       case "stackedColumn":
       case "stackedColumn100":
       case "lineStackedColumn":
@@ -596,8 +697,49 @@
     }
   }
 
+  function buildDefaultCard(type){
+    if (type === "kpi") {
+      return {
+        label: "Profit YTD",
+        value: "32.4K",
+        trend: "+18.6%",
+        trendUp: true
+      };
+    }
+    if (type === "card") {
+      return {
+        label: "Total Sales",
+        value: "220K"
+      };
+    }
+    if (type === "multirowCard") {
+      return {
+        rows: [
+          { k: "Sales", v: "220K" },
+          { k: "Profit", v: "32K" },
+          { k: "Orders", v: "1,450" },
+          { k: "YoY", v: "+80%" }
+        ]
+      };
+    }
+    return null;
+  }
+
+  function buildDefaultText(type){
+    if (type !== "textBox") return null;
+    return {
+      html: "Type your text here…",
+      fontSize: 16,
+      color: "#e8ecf2",
+      bold: false,
+      italic: false,
+      align: "left",
+      bg: "rgba(255,255,255,0.02)"
+    };
+  }
+
   // -------------------------
-  // Visual DOM creation
+  // Visual DOM
   // -------------------------
   function createVisualElement(v){
     const el = document.createElement("div");
@@ -616,7 +758,6 @@
       </div>
       <div class="vBody" id="body_${v.id}"></div>
 
-      <!-- resize handles (visible only when selected) -->
       <div class="handle nw" data-handle="nw"></div>
       <div class="handle ne" data-handle="ne"></div>
       <div class="handle sw" data-handle="sw"></div>
@@ -637,11 +778,9 @@
       removeVisual(v.id);
     });
 
-    // Dragging by header
     const header = el.querySelector(".vHeader");
     header.addEventListener("mousedown", (e) => startDrag(e, v.id));
 
-    // Resizing by handles
     el.querySelectorAll(".handle").forEach(h => {
       h.addEventListener("mousedown", (e) => startResize(e, v.id, h.dataset.handle));
     });
@@ -669,7 +808,7 @@
   }
 
   // -------------------------
-  // Drag & Resize (smooth, overlap allowed)
+  // Drag & Resize (clamped on ALL sides)
   // -------------------------
   let dragCtx = null;
 
@@ -726,12 +865,12 @@
     const dy = e.clientY - dragCtx.startY;
 
     if (dragCtx.mode === "drag") {
-      v.x = clamp(dragCtx.origX + dx, 0, CANVAS_W - v.w);
-      v.y = clamp(dragCtx.origY + dy, 0, CANVAS_H - v.h);
+      v.x = clamp(dragCtx.origX + dx, 0, canvasW - v.w);
+      v.y = clamp(dragCtx.origY + dy, 0, canvasH - v.h);
       applyVisualRect(v);
     } else {
       const minW = 220;
-      const minH = 170;
+      const minH = 140;
 
       let x = dragCtx.origX;
       let y = dragCtx.origY;
@@ -740,8 +879,8 @@
 
       const hnd = dragCtx.handle;
 
-      const applyW = (newW) => clamp(newW, minW, CANVAS_W - x);
-      const applyH = (newH) => clamp(newH, minH, CANVAS_H - y);
+      const applyW = (newW) => clamp(newW, minW, canvasW - x);
+      const applyH = (newH) => clamp(newH, minH, canvasH - y);
 
       if (hnd.includes("e")) w = applyW(dragCtx.origW + dx);
       if (hnd.includes("s")) h = applyH(dragCtx.origH + dy);
@@ -750,14 +889,14 @@
         const newX = clamp(dragCtx.origX + dx, 0, dragCtx.origX + dragCtx.origW - minW);
         const newW = dragCtx.origW + (dragCtx.origX - newX);
         x = newX;
-        w = clamp(newW, minW, CANVAS_W - x);
+        w = clamp(newW, minW, canvasW - x);
       }
 
       if (hnd.includes("n")) {
         const newY = clamp(dragCtx.origY + dy, 0, dragCtx.origY + dragCtx.origH - minH);
         const newH = dragCtx.origH + (dragCtx.origY - newY);
         y = newY;
-        h = clamp(newH, minH, CANVAS_H - y);
+        h = clamp(newH, minH, canvasH - y);
       }
 
       v.x = x; v.y = y; v.w = w; v.h = h;
@@ -781,8 +920,24 @@
     el.style.height = `${v.h}px`;
   }
 
+  function clampAllVisualsInsideCanvas(){
+    state.order.forEach(id => {
+      const v = state.visuals.get(id);
+      if (!v) return;
+      v.x = clamp(v.x, 0, Math.max(0, canvasW - v.w));
+      v.y = clamp(v.y, 0, Math.max(0, canvasH - v.h));
+
+      // Also clamp size if canvas becomes smaller
+      v.w = clamp(v.w, 220, Math.max(220, canvasW - v.x));
+      v.h = clamp(v.h, 140, Math.max(140, canvasH - v.y));
+
+      applyVisualRect(v);
+      if (v.chart) v.chart.resize();
+    });
+  }
+
   // -------------------------
-  // Render visual content (Chart.js + prototypes)
+  // Render visual content
   // -------------------------
   function renderVisualContent(v){
     const body = document.getElementById(`body_${v.id}`);
@@ -794,6 +949,7 @@
     }
     body.innerHTML = "";
 
+    // Image
     if (v.type === "image") {
       const host = document.createElement("div");
       host.className = "imageHost";
@@ -805,16 +961,43 @@
       return;
     }
 
+    // KPI
+    if (v.type === "kpi") {
+      body.appendChild(makeKpiPrototype(v));
+      return;
+    }
+
+    // Card
+    if (v.type === "card") {
+      body.appendChild(makeCardPrototype(v));
+      return;
+    }
+
+    // Multi-row card
+    if (v.type === "multirowCard") {
+      body.appendChild(makeMultirowCardPrototype(v));
+      return;
+    }
+
+    // Text box
+    if (v.type === "textBox") {
+      body.appendChild(makeTextBoxPrototype(v));
+      return;
+    }
+
+    // Treemap
     if (v.type === "treemap") {
       body.appendChild(makeTreemapPrototype(v));
       return;
     }
 
+    // Ribbon
     if (v.type === "ribbon") {
       body.appendChild(makeRibbonPrototype(v));
       return;
     }
 
+    // Chart.js visuals
     const host = document.createElement("div");
     host.className = "chartHost";
     const c = document.createElement("canvas");
@@ -827,6 +1010,150 @@
 
     v.chart = new Chart(ctx, ds.config);
     applyThemeToSingleVisual(v);
+  }
+
+  function makeKpiPrototype(v){
+    const wrap = document.createElement("div");
+    wrap.style.width = "100%";
+    wrap.style.height = "100%";
+    wrap.style.display = "flex";
+    wrap.style.flexDirection = "column";
+    wrap.style.justifyContent = "center";
+    wrap.style.padding = "14px";
+
+    const label = document.createElement("div");
+    label.style.opacity = "0.85";
+    label.style.fontSize = "12px";
+    label.textContent = v.card?.label || "KPI";
+
+    const value = document.createElement("div");
+    value.style.fontSize = "34px";
+    value.style.fontWeight = "800";
+    value.style.marginTop = "6px";
+    value.textContent = v.card?.value || "0";
+
+    const trend = document.createElement("div");
+    trend.style.marginTop = "8px";
+    trend.style.fontSize = "13px";
+    trend.style.display = "flex";
+    trend.style.alignItems = "center";
+    trend.style.gap = "8px";
+
+    const up = !!v.card?.trendUp;
+    const arrow = document.createElement("span");
+    arrow.textContent = up ? "▲" : "▼";
+    arrow.style.fontWeight = "900";
+    arrow.style.opacity = "0.9";
+
+    const tval = document.createElement("span");
+    tval.textContent = v.card?.trend || "+0%";
+
+    trend.appendChild(arrow);
+    trend.appendChild(tval);
+
+    wrap.appendChild(label);
+    wrap.appendChild(value);
+    wrap.appendChild(trend);
+    return wrap;
+  }
+
+  function makeCardPrototype(v){
+    const wrap = document.createElement("div");
+    wrap.style.width = "100%";
+    wrap.style.height = "100%";
+    wrap.style.display = "flex";
+    wrap.style.flexDirection = "column";
+    wrap.style.justifyContent = "center";
+    wrap.style.padding = "14px";
+
+    const label = document.createElement("div");
+    label.style.opacity = "0.85";
+    label.style.fontSize = "12px";
+    label.textContent = v.card?.label || "Card";
+
+    const value = document.createElement("div");
+    value.style.fontSize = "32px";
+    value.style.fontWeight = "800";
+    value.style.marginTop = "8px";
+    value.textContent = v.card?.value || "0";
+
+    wrap.appendChild(label);
+    wrap.appendChild(value);
+    return wrap;
+  }
+
+  function makeMultirowCardPrototype(v){
+    const wrap = document.createElement("div");
+    wrap.style.width = "100%";
+    wrap.style.height = "100%";
+    wrap.style.display = "flex";
+    wrap.style.flexDirection = "column";
+    wrap.style.padding = "14px";
+    wrap.style.gap = "10px";
+
+    const rows = Array.isArray(v.card?.rows) ? v.card.rows : [];
+
+    rows.forEach(r => {
+      const line = document.createElement("div");
+      line.style.display = "flex";
+      line.style.justifyContent = "space-between";
+      line.style.gap = "12px";
+
+      const k = document.createElement("div");
+      k.style.opacity = "0.85";
+      k.style.fontSize = "12px";
+      k.textContent = r.k;
+
+      const val = document.createElement("div");
+      val.style.fontWeight = "800";
+      val.style.fontSize = "13px";
+      val.textContent = r.v;
+
+      line.appendChild(k);
+      line.appendChild(val);
+      wrap.appendChild(line);
+    });
+
+    return wrap;
+  }
+
+  function makeTextBoxPrototype(v){
+    const wrap = document.createElement("div");
+    wrap.style.width = "100%";
+    wrap.style.height = "100%";
+    wrap.style.padding = "12px";
+    wrap.style.overflow = "hidden";
+
+    const t = v.text || buildDefaultText("textBox");
+
+    const box = document.createElement("div");
+    box.className = "textBoxHost";
+    box.contentEditable = "true";
+    box.spellcheck = false;
+
+    box.style.width = "100%";
+    box.style.height = "100%";
+    box.style.outline = "none";
+    box.style.whiteSpace = "pre-wrap";
+    box.style.wordBreak = "break-word";
+    box.style.fontSize = `${t.fontSize || 16}px`;
+    box.style.color = t.color || "#e8ecf2";
+    box.style.fontWeight = t.bold ? "800" : "400";
+    box.style.fontStyle = t.italic ? "italic" : "normal";
+    box.style.textAlign = t.align || "left";
+    box.style.background = t.bg || "rgba(255,255,255,0.02)";
+    box.style.borderRadius = "10px";
+    box.style.padding = "10px";
+
+    box.innerHTML = t.html || "Type your text here…";
+
+    box.addEventListener("input", () => {
+      v.text = v.text || buildDefaultText("textBox");
+      v.text.html = box.innerHTML;
+    });
+
+    wrap.appendChild(box);
+    return wrap;
   }
 
   function buildChartJsData(v){
@@ -1063,12 +1390,7 @@
                 pointRadius: 4
               }]
             },
-            options: (() => {
-              const o = makeChartDefaults();
-              o.scales.x.title = { display:true, text:"Sales", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-              o.scales.y.title = { display:true, text:"Profit", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-              return o;
-            })()
+            options: makeChartDefaults()
           }
         };
       }
@@ -1081,7 +1403,9 @@
     }
   }
 
-  // Treemap prototype
+  // -------------------------
+  // Prototypes
+  // -------------------------
   function makeTreemapPrototype(v){
     const wrap = document.createElement("div");
     wrap.style.width = "100%";
@@ -1122,7 +1446,6 @@
     return wrap;
   }
 
-  // Ribbon prototype (SVG)
   function makeRibbonPrototype(v){
     const host = document.createElement("div");
     host.style.width = "100%";
@@ -1142,13 +1465,7 @@
     svg.style.width = "100%";
     svg.style.height = "100%";
 
-    const grid = document.createElementNS("http://www.w3.org/2000/svg","path");
-    grid.setAttribute("d","M0 210 H600 M0 160 H600 M0 110 H600 M0 60 H600");
-    grid.setAttribute("stroke", theme?.chart?.grid || "rgba(255,255,255,0.10)");
-    grid.setAttribute("stroke-width","1");
-    grid.setAttribute("fill","none");
-    svg.appendChild(grid);
-
+    // ✅ (1) remove ribbon background grid lines entirely (no extra lines)
     const bands = [
       { y0: 60,  y1: 90,  wobble: 18 },
       { y0: 100, y1: 135, wobble: 22 },
@@ -1219,22 +1536,23 @@
   // Theme apply
   // -------------------------
   function applyThemeToSingleVisual(v){
-    if (v.type === "treemap" || v.type === "ribbon") {
+    if (["treemap","ribbon","kpi","card","multirowCard","textBox","image"].includes(v.type)) {
       renderVisualContent(v);
       return;
     }
     if (!v.chart) return;
 
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
-    const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
 
     if (v.chart.options?.plugins?.legend?.labels) {
       v.chart.options.plugins.legend.labels.color = labelColor;
     }
-    if (v.chart.options?.scales?.x?.ticks) v.chart.options.scales.x.ticks.color = labelColor;
-    if (v.chart.options?.scales?.y?.ticks) v.chart.options.scales.y.ticks.color = labelColor;
-    if (v.chart.options?.scales?.x?.grid) v.chart.options.scales.x.grid.color = gridColor;
-    if (v.chart.options?.scales?.y?.grid) v.chart.options.scales.y.grid.color = gridColor;
+
+    // keep "no grid lines" on theme updates too
+    if (v.chart.options?.scales?.x?.grid) v.chart.options.scales.x.grid.display = false;
+    if (v.chart.options?.scales?.y?.grid) v.chart.options.scales.y.grid.display = false;
+    if (v.chart.options?.scales?.x?.border) v.chart.options.scales.x.border.display = false;
+    if (v.chart.options?.scales?.y?.border) v.chart.options.scales.y.border.display = false;
 
     syncSeriesToChart(v);
     v.chart.update();
@@ -1340,12 +1658,19 @@
   }
 
   // -------------------------
-  // Format pane (always visible; never disappears)
+  // Format pane (always visible)
   // -------------------------
   function renderFormatPane(){
     const selected = state.selectedId ? state.visuals.get(state.selectedId) : null;
 
+    // Canvas settings
     if (!selected) {
+      const presetOptions = CANVAS_PRESETS.map(p => `
+        <option value="${escapeAttr(p.key)}"${p.key === canvasPresetKey ? " selected" : ""}>
+          ${escapeHtml(p.label)}
+        </option>
+      `).join("");
+
       formatBody.innerHTML = `
         <div class="fSection">
           <div class="fHeader">
@@ -1353,15 +1678,29 @@
             <div class="fSmall">No visual selected</div>
           </div>
 
+          <div class="row one">
+            <div class="field">
+              <div class="label">Type</div>
+              <select class="input" id="canvasPreset">
+                ${presetOptions}
+              </select>
+            </div>
+          </div>
+
           <div class="row">
             <div class="field">
-              <div class="label">Canvas width</div>
-              <input class="input" value="${CANVAS_W}" disabled />
+              <div class="label">Width (px)</div>
+              <input class="input" id="canvasW" value="${escapeAttr(String(canvasW))}" />
             </div>
             <div class="field">
-              <div class="label">Canvas height</div>
-              <input class="input" value="${CANVAS_H}" disabled />
+              <div class="label">Height (px)</div>
+              <input class="input" id="canvasH" value="${escapeAttr(String(canvasH))}" />
             </div>
+          </div>
+
+          <div class="smallBtnRow">
+            <button class="btn" id="applyCanvasSizeBtn">Apply size</button>
+            <button class="btn" id="resetCanvasSizeBtn">Reset</button>
           </div>
 
           <div class="row">
@@ -1383,7 +1722,7 @@
           </div>
 
           <div class="smallBtnRow">
-            <button class="btn" id="applyCanvasBgBtn">Apply</button>
+            <button class="btn" id="applyCanvasBgBtn">Apply background</button>
             <button class="btn" id="browseCanvasBgBtn">Browse (Upload Canvas BG JSON)</button>
             <input id="canvasBgUploadInput" type="file" accept=".json,application/json" hidden />
           </div>
@@ -1405,11 +1744,49 @@
           </div>
 
           <div class="fSmall" style="margin-top:8px;">
-            Theme applies to chart palette + labels + grid instantly (existing + new visuals).
+            Theme applies instantly to existing + new visuals.
           </div>
         </div>
       `;
 
+      // Preset
+      const presetSel = document.getElementById("canvasPreset");
+      presetSel.onchange = () => {
+        const key = presetSel.value;
+        const p = CANVAS_PRESETS.find(x => x.key === key);
+        if (!p) return;
+        canvasPresetKey = key;
+        canvasW = p.w;
+        canvasH = p.h;
+        applyCanvasSize();
+        showToast("Canvas size updated");
+      };
+
+      // Apply custom
+      document.getElementById("applyCanvasSizeBtn").onclick = () => {
+        const w = Number(document.getElementById("canvasW").value);
+        const h = Number(document.getElementById("canvasH").value);
+
+        if (isFinite(w) && w >= 600) canvasW = Math.round(w);
+        if (isFinite(h) && h >= 400) canvasH = Math.round(h);
+
+        // If user customizes, keep preset as closest (or unchanged)
+        // (simple rule: if matches preset exactly, set it)
+        const match = CANVAS_PRESETS.find(p => p.w === canvasW && p.h === canvasH);
+        if (match) canvasPresetKey = match.key;
+
+        applyCanvasSize();
+        showToast("Canvas size applied");
+      };
+
+      document.getElementById("resetCanvasSizeBtn").onclick = () => {
+        canvasPresetKey = "p1280";
+        canvasW = 1280; canvasH = 720;
+        applyCanvasSize();
+        showToast("Canvas reset");
+      };
+
+      // Background apply
       document.getElementById("applyCanvasBgBtn").onclick = () => {
         const c = document.getElementById("canvasBgColor").value.trim();
         const o = Number(document.getElementById("canvasBgOpacity").value.trim());
@@ -1423,6 +1800,7 @@
         showToast("Canvas background updated");
       };
 
+      // Browse canvas bg
       const browseBtn = document.getElementById("browseCanvasBgBtn");
       const input = document.getElementById("canvasBgUploadInput");
       browseBtn.onclick = () => { input.value=""; input.click(); };
@@ -1440,6 +1818,7 @@
         }
       };
 
+      // Theme buttons
       document.getElementById("importThemeBtn2").onclick = () => importThemeBtn.click();
       document.getElementById("resetThemeBtn").onclick = () => {
         theme = structuredClone(defaultTheme);
@@ -1450,7 +1829,7 @@
       return;
     }
 
-    // Visual settings view
+    // Visual settings
     const v = selected;
 
     const posHtml = `
@@ -1496,6 +1875,8 @@
       </div>
     `;
 
+    const isDataColorVisual = !["image","kpi","card","multirowCard","textBox"].includes(v.type);
+
     const colorsHtml = (v.type === "image")
       ? `
         <div class="fSection">
@@ -1508,7 +1889,8 @@
           </div>
         </div>
       `
-      : `
+      : isDataColorVisual
+      ? `
         <div class="fSection">
           <div class="fHeader">
             <div class="fHeaderTitle">Data colors</div>
@@ -1525,26 +1907,76 @@
             Tip: Renaming here updates the legend labels too.
           </div>
         </div>
-      `;
+      `
+      : "";
 
-    formatBody.innerHTML = posHtml + colorsHtml;
+    const textHtml = (v.type === "textBox")
+      ? `
+        <div class="fSection">
+          <div class="fHeader">
+            <div class="fHeaderTitle">Text</div>
+            <div class="fSmall">Format</div>
+          </div>
 
+          <div class="row">
+            <div class="field">
+              <div class="label">Font size</div>
+              <input class="input" id="txtSize" value="${escapeAttr(String(v.text?.fontSize ?? 16))}" />
+            </div>
+            <div class="field">
+              <div class="label">Text color</div>
+              <input class="colorInput" id="txtColor" type="color" value="${escapeAttr(ensureHex(v.text?.color || "#e8ecf2"))}" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <div class="label">Align</div>
+              <select class="input" id="txtAlign">
+                <option value="left"${(v.text?.align==="left")?" selected":""}>Left</option>
+                <option value="center"${(v.text?.align==="center")?" selected":""}>Center</option>
+                <option value="right"${(v.text?.align==="right")?" selected":""}>Right</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="label">Background</div>
+              <input class="input" id="txtBg" value="${escapeAttr(v.text?.bg || "rgba(255,255,255,0.02)")}" />
+            </div>
+          </div>
+
+          <div class="smallBtnRow">
+            <button class="btn" id="txtBoldBtn">${v.text?.bold ? "Unbold" : "Bold"}</button>
+            <button class="btn" id="txtItalicBtn">${v.text?.italic ? "Unitalic" : "Italic"}</button>
+            <button class="btn" id="txtApplyBtn">Apply</button>
+          </div>
+
+          <div class="fSmall" style="margin-top:8px;">
+            Tip: Click inside the text box to edit content.
+          </div>
+        </div>
+      `
+      : "";
+
+    formatBody.innerHTML = posHtml + colorsHtml + textHtml;
+
+    // Title
     document.getElementById("fmtTitle").oninput = (e) => {
       v.title = e.target.value;
       const t = document.getElementById(`title_${v.id}`);
       if (t) t.textContent = v.title;
     };
 
+    // Position apply (use current canvasW/H)
     document.getElementById("applyPosBtn").onclick = () => {
       const nx = Number(document.getElementById("fmtX").value);
       const ny = Number(document.getElementById("fmtY").value);
       const nw = Number(document.getElementById("fmtW").value);
       const nh = Number(document.getElementById("fmtH").value);
 
-      if (isFinite(nx)) v.x = clamp(nx, 0, CANVAS_W - v.w);
-      if (isFinite(ny)) v.y = clamp(ny, 0, CANVAS_H - v.h);
-      if (isFinite(nw)) v.w = clamp(nw, 220, CANVAS_W - v.x);
-      if (isFinite(nh)) v.h = clamp(nh, 170, CANVAS_H - v.y);
+      if (isFinite(nx)) v.x = clamp(nx, 0, canvasW - v.w);
+      if (isFinite(ny)) v.y = clamp(ny, 0, canvasH - v.h);
+      if (isFinite(nw)) v.w = clamp(nw, 220, canvasW - v.x);
+      if (isFinite(nh)) v.h = clamp(nh, 140, canvasH - v.y);
 
       applyVisualRect(v);
       if (v.chart) v.chart.resize();
@@ -1553,7 +1985,8 @@
 
     document.getElementById("deleteBtn").onclick = () => removeVisual(v.id);
 
-    if (v.type !== "image") {
+    // Series editor
+    if (isDataColorVisual) {
       v.series.forEach((s, idx) => {
         const nameEl = document.getElementById(`sname_${v.id}_${idx}`);
         const colEl  = document.getElementById(`scol_${v.id}_${idx}`);
@@ -1587,6 +2020,7 @@
       }
     }
 
+    // Replace image
     if (v.type === "image") {
       document.getElementById("replaceImageBtn").onclick = () => {
         imageUploadInput.value = "";
@@ -1598,6 +2032,37 @@
           renderVisualContent(v);
           showToast("Image replaced");
         };
+      };
+    }
+
+    // Text formatting
+    if (v.type === "textBox") {
+      document.getElementById("txtBoldBtn").onclick = () => {
+        v.text = v.text || buildDefaultText("textBox");
+        v.text.bold = !v.text.bold;
+        renderVisualContent(v);
+        renderFormatPane();
+      };
+      document.getElementById("txtItalicBtn").onclick = () => {
+        v.text = v.text || buildDefaultText("textBox");
+        v.text.italic = !v.text.italic;
+        renderVisualContent(v);
+        renderFormatPane();
+      };
+      document.getElementById("txtApplyBtn").onclick = () => {
+        v.text = v.text || buildDefaultText("textBox");
+        const size = Number(document.getElementById("txtSize").value);
+        const color = document.getElementById("txtColor").value;
+        const align = document.getElementById("txtAlign").value;
+        const bg = document.getElementById("txtBg").value;
+
+        if (isFinite(size)) v.text.fontSize = clamp(size, 10, 72);
+        v.text.color = color || v.text.color;
+        v.text.align = align;
+        v.text.bg = bg || v.text.bg;
+
+        renderVisualContent(v);
+        showToast("Text formatting applied");
       };
     }
   }
@@ -1640,7 +2105,7 @@
   }
 
   // -------------------------
-  // Theme import (Power BI-like)
+  // Theme import
   // -------------------------
   if (importThemeBtn) {
     importThemeBtn.addEventListener("click", () => {
@@ -1688,9 +2153,7 @@
   }
 
   // -------------------------
-  // Download/Upload dashboard (with discard confirm)
-  // ✅ FIX: confirmation modal only on Upload click AND when non-default state
-  // ✅ Modal is forced hidden until needed
+  // Download/Upload dashboard
   // -------------------------
   if (downloadDashboardBtn) {
     downloadDashboardBtn.addEventListener("click", () => {
@@ -1702,7 +2165,6 @@
 
   if (uploadDashboardBtn) {
     uploadDashboardBtn.addEventListener("click", () => {
-      // user explicitly initiated upload
       uploadDashboardInput.value = "";
       uploadDashboardInput.click();
     });
@@ -1725,9 +2187,6 @@
         }
       };
 
-      // ✅ EXACT requirement:
-      // - If empty default dashboard -> NO popup
-      // - If ANY visuals OR non-default state -> popup
       if (!isDefaultState()) openDiscardModal(loadIt);
       else loadIt();
     });
@@ -1736,7 +2195,6 @@
   function openDiscardModal(onConfirm){
     if (!modalBackdrop) return;
 
-    // ✅ never show this if the dashboard is empty default
     if (isDefaultState()) {
       onConfirm?.();
       return;
@@ -1775,15 +2233,18 @@
           color: s.color,
           overrideColor: !!s.overrideColor
         })),
-        imageDataUrl: v.type === "image" ? (v.imageDataUrl || "") : undefined
+        imageDataUrl: v.type === "image" ? (v.imageDataUrl || "") : undefined,
+        card: (["kpi","card","multirowCard"].includes(v.type)) ? (v.card || null) : undefined,
+        text: (v.type === "textBox") ? (v.text || null) : undefined
       };
     }).filter(Boolean);
 
     return {
-      version: 1,
+      version: 2,
       canvas: {
-        width: CANVAS_W,
-        height: CANVAS_H,
+        width: canvasW,
+        height: canvasH,
+        presetKey: canvasPresetKey,
         background: canvasBg
       },
       theme,
@@ -1794,27 +2255,42 @@
   async function loadDashboard(obj){
     clearAllVisuals();
 
-    if (obj?.canvas?.background) {
-      canvasBg = normalizeCanvasBg(obj.canvas.background);
-    } else {
-      canvasBg = structuredClone(sampleCanvasBg);
-    }
+    // canvas
+    const cw = Number(obj?.canvas?.width);
+    const ch = Number(obj?.canvas?.height);
+    if (isFinite(cw) && cw >= 600) canvasW = Math.round(cw);
+    if (isFinite(ch) && ch >= 400) canvasH = Math.round(ch);
+
+    const pk = String(obj?.canvas?.presetKey || "");
+    if (CANVAS_PRESETS.some(p => p.key === pk)) canvasPresetKey = pk;
+
+    // background
+    if (obj?.canvas?.background) canvasBg = normalizeCanvasBg(obj.canvas.background);
+    else canvasBg = structuredClone(sampleCanvasBg);
     applyCanvasBackground();
 
+    // theme
     theme = normalizeTheme(obj?.theme || defaultTheme);
-    applyThemeEverywhere();
 
+    // apply canvas size (also clamps)
+    applyCanvasSize();
+
+    // visuals
     const visuals = Array.isArray(obj?.visuals) ? obj.visuals : [];
     visuals.forEach(vs => {
       const id = String(vs.id || `vis${state.nextId++}`);
+      const type = vs.type;
+
       const v = {
         id,
-        type: vs.type,
-        title: vs.title || defaultTitleFor(vs.type),
-        x: clamp(Number(vs.x)||40, 0, CANVAS_W-220),
-        y: clamp(Number(vs.y)||40, 0, CANVAS_H-170),
-        w: clamp(Number(vs.w)||DEFAULT_SIZES[vs.type]?.w||520, 220, CANVAS_W),
-        h: clamp(Number(vs.h)||DEFAULT_SIZES[vs.type]?.h||300, 170, CANVAS_H),
+        type,
+        title: vs.title || defaultTitleFor(type),
+
+        x: clamp(Number(vs.x)||40, 0, canvasW-220),
+        y: clamp(Number(vs.y)||40, 0, canvasH-140),
+        w: clamp(Number(vs.w)||DEFAULT_SIZES[type]?.w||520, 220, canvasW),
+        h: clamp(Number(vs.h)||DEFAULT_SIZES[type]?.h||300, 140, canvasH),
+
         series: Array.isArray(vs.series)
           ? vs.series.map((s,i)=>({
               key: s.key || s.name || `S${i+1}`,
@@ -1822,14 +2298,21 @@
               color: s.color || paletteColor(i),
               overrideColor: !!s.overrideColor
             }))
-          : buildDefaultSeries(vs.type),
-        imageDataUrl: vs.type === "image" ? (vs.imageDataUrl || "") : undefined,
+          : buildDefaultSeries(type),
+
+        imageDataUrl: type === "image" ? (vs.imageDataUrl || "") : undefined,
+        card: (["kpi","card","multirowCard"].includes(type)) ? (vs.card || buildDefaultCard(type)) : buildDefaultCard(type),
+        text: (type === "textBox") ? (vs.text || buildDefaultText("textBox")) : null,
         chart: null
       };
 
       v.series?.forEach((s,i)=>{
         if (!s.overrideColor) s.color = paletteColor(i);
       });
+
+      // clamp strictly in bounds
+      v.x = clamp(v.x, 0, Math.max(0, canvasW - v.w));
+      v.y = clamp(v.y, 0, Math.max(0, canvasH - v.h));
 
       state.visuals.set(id, v);
       state.order.push(id);
@@ -1842,6 +2325,9 @@
     updateZOrder();
     setSelected(null);
     state.nextId = Math.max(state.nextId, state.order.length + 1);
+
+    applyThemeEverywhere();
+    fitCanvasToScreen();
   }
 
   function clearAllVisuals(){
@@ -1875,28 +2361,9 @@
   }
 
   // -------------------------
-  // Safety: Escape helpers
-  // -------------------------
-  function escapeHtml(str){
-    return String(str ?? "")
-      .replaceAll("&","&amp;")
-      .replaceAll("<","&lt;")
-      .replaceAll(">","&gt;")
-      .replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-  function escapeAttr(str){ return escapeHtml(str).replaceAll("\n"," "); }
-
-  // -------------------------
-  // Start: format pane should always show canvas settings
+  // Start: always show canvas settings
   // -------------------------
   renderFormatPane();
-
-  // -------------------------
-  // IMPORTANT: Empty dashboard on load (no starter visuals)
-  // -------------------------
-  // addVisual("line");
-  // addVisual("donut");
+  fitCanvasToScreen();
 
 })();
-

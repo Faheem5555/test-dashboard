@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Power BI Prototype Dashboard (Layout + Theme + Save/Load)</title>
 
-  <!-- Fonts (Power BI-ish) -->
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
@@ -18,10 +18,11 @@
 
 <body>
   <div class="app">
+
     <!-- TOP BAR -->
     <header class="topbar">
       <div class="brand">
-        <div class="pbiDot" aria-hidden="true"></div>
+        <div class="pbiDot"></div>
         <div>
           <div class="brandTitle">Prototype Dashboard</div>
           <div class="brandSub">Power BI-style layout prototyping (no real analytics)</div>
@@ -29,107 +30,87 @@
       </div>
 
       <div class="topbarActions">
-        <button class="btn btnGhost" id="downloadSampleThemeBtn" title="Download sample Theme JSON">Sample Theme</button>
-        <button class="btn btnGhost" id="downloadSampleCanvasBgBtn" title="Download sample Canvas Background JSON">Sample Canvas BG</button>
-
+        <button class="btn btnGhost" id="downloadSampleThemeBtn">Sample Theme</button>
+        <button class="btn btnGhost" id="downloadSampleCanvasBgBtn">Sample Canvas BG</button>
         <span class="dividerV"></span>
-
-        <button class="btn btnPrimary" id="downloadDashboardBtn" title="Download dashboard JSON">Download Dashboard</button>
-        <button class="btn" id="uploadDashboardBtn" title="Upload dashboard JSON">Upload Dashboard</button>
-        <input id="uploadDashboardInput" type="file" accept=".json,application/json" hidden />
+        <button class="btn btnPrimary" id="downloadDashboardBtn">Download Dashboard</button>
+        <button class="btn" id="uploadDashboardBtn">Upload Dashboard</button>
+        <input id="uploadDashboardInput" type="file" accept=".json" hidden />
       </div>
     </header>
 
     <!-- MAIN -->
     <main class="main">
-      <!-- LEFT PANE (visual picker) -->
-      <aside class="leftPane" aria-label="Visual picker">
+
+      <!-- LEFT -->
+      <aside class="leftPane">
         <div class="paneTitle">Visualizations</div>
 
-        <!-- Power BI-style dropdown/category picker -->
         <div class="picker">
-          <button class="pickerToggle" id="visualPickerToggle" aria-haspopup="true" aria-expanded="false">
-            <span class="pickerIcon" aria-hidden="true">▦</span>
+          <button class="pickerToggle" id="visualPickerToggle">
+            <span class="pickerIcon">▦</span>
             <span>Select visual</span>
-            <span class="pickerCaret" aria-hidden="true">▾</span>
+            <span class="pickerCaret">▾</span>
           </button>
-
-          <div class="pickerMenu" id="visualPickerMenu" role="menu" aria-label="Visual types">
-            <!-- injected by JS -->
-          </div>
+          <div class="pickerMenu" id="visualPickerMenu"></div>
         </div>
 
         <div class="helper">
           <div class="helperTitle">Interactions</div>
           <ul class="helperList">
-            <li>Drag visuals by the header</li>
-            <li>Resize from edges/corners</li>
-            <li>Click empty canvas to show <b>Canvas settings</b></li>
-            <li>✖ appears only when a visual is selected</li>
+            <li>Drag visuals by header</li>
+            <li>Resize from edges</li>
+            <li>Click empty canvas → Canvas settings</li>
+            <li>✖ visible only when selected</li>
           </ul>
         </div>
 
         <div class="helper">
           <div class="helperTitle">Theme</div>
-          <div class="helperRow">
-            <button class="btn" id="importThemeBtn">Import Theme JSON</button>
-            <input id="importThemeInput" type="file" accept=".json,application/json" hidden />
-          </div>
-          <div class="helperNote">
-            Theme applies to <b>existing + new visuals</b> instantly.
-          </div>
+          <button class="btn" id="importThemeBtn">Import Theme JSON</button>
+          <input id="importThemeInput" type="file" accept=".json" hidden />
         </div>
       </aside>
 
-      <!-- CENTER CANVAS AREA -->
-      <section class="center" aria-label="Canvas area">
+      <!-- CENTER -->
+      <section class="center">
         <div class="canvasWrap">
           <div class="canvasFrame">
-            <div id="canvas"
-                 class="canvas"
-                 role="region"
-                 aria-label="Dashboard canvas"
-                 tabindex="0">
-              <!-- visuals injected by JS -->
-              <div class="canvasWatermark" id="canvasWatermark" aria-hidden="true">PROTOTYPE</div>
+            <div id="canvas" class="canvas">
+              <div class="canvasWatermark">PROTOTYPE</div>
             </div>
           </div>
 
           <div class="canvasFooter">
             <div class="statusPill" id="statusPill">Canvas: 1280 × 720</div>
-            <div class="statusHint">Tip: click empty canvas to edit canvas background</div>
+            <div class="statusHint">Click empty canvas to edit canvas</div>
           </div>
         </div>
       </section>
 
-      <!-- RIGHT FORMAT PANE (always visible) -->
-      <aside class="rightPane" aria-label="Format pane">
+      <!-- RIGHT -->
+      <aside class="rightPane">
         <div class="paneTitle">Format</div>
-
-        <div class="formatBody" id="formatBody">
-          <!-- injected by JS (never disappears) -->
-        </div>
+        <div class="formatBody" id="formatBody"></div>
       </aside>
+
     </main>
 
     <!-- TOAST -->
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="toast" id="toast"></div>
 
     <!-- MODAL -->
     <div class="modalBackdrop" id="modalBackdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <div class="modalTitle" id="modalTitle">Discard existing dashboard?</div>
-        <div class="modalText" id="modalText">
-          Would you like to discard the existing dashboard?
-        </div>
+      <div class="modal">
+        <div class="modalTitle">Discard existing dashboard?</div>
+        <div class="modalText">Would you like to discard the existing dashboard?</div>
         <div class="modalActions">
           <button class="btn btnGhost" id="modalCancelBtn">Cancel</button>
-          <button class="btn btnDanger" id="modalConfirmBtn">Discard &amp; Load</button>
+          <button class="btn btnDanger" id="modalConfirmBtn">Discard & Load</button>
         </div>
       </div>
     </div>
 
-    <!-- Image upload (visual) -->
     <input id="imageUploadInput" type="file" accept="image/*" hidden />
   </div>
 

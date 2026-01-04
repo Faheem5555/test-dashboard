@@ -1,6 +1,7 @@
+```css
 /* =========================
    Power BI Prototype Dashboard
-   - Fixed canvas 1280×720
+   - Fixed canvas 16:9 default (adjustable)
    - No infinite scroll
    - Overlap allowed (absolute positioning)
    - Power BI-ish clean UI
@@ -17,6 +18,8 @@
 
   --canvasW: 1280px;
   --canvasH: 720px;
+
+  --canvasOffsetTop: 14px;
 
   /* Canvas background (themeable) */
   --canvasBgColor: #0b0d12;
@@ -124,12 +127,17 @@ body{
   padding: 12px;
   min-height:0;
   overflow:hidden; /* no pane infinite growth */
+  padding-top: var(--canvasOffsetTop); /* aligns with canvas top dynamically (updated by JS) */
 }
 .rightPane{
   border-right:none;
   border-left: 1px solid var(--border);
 }
 
+/* Ensure format body scrolls internally */
+.formatBody{ height: calc(100% - 24px); overflow:auto; padding-right: 2px; }
+
+/* Pane title */
 .paneTitle{
   font-weight:700;
   font-size:13px;
@@ -280,20 +288,13 @@ body{
 .canvasFrame{
   flex:1;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:center;
   min-height:0;
-  overflow:hidden; /* ensure scaled canvas never overflows viewport */
+  overflow:auto; /* allow internal scrolling when canvas larger than center area */
+  padding: 8px; /* small padding for scrollbars */
+  background: transparent;
 }
-
-/* ✅ scaler wrapper (created by JS) so fit-to-screen doesn't overflow layout */
-.canvasScaler{
-  display:flex;
-  align-items:flex-start;
-  justify-content:flex-start;
-  overflow:hidden;
-}
-
 .canvas{
   position:relative;
   width: var(--canvasW);
@@ -438,92 +439,6 @@ body{
   border-radius: 8px;
 }
 
-/* ✅ KPI / Card styles */
-.cardLike{
-  width:100%;
-  height:100%;
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.02);
-}
-.kpiLabel{
-  font-size: 12px;
-  color: rgba(232,236,242,0.78);
-  margin-bottom: 8px;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-}
-.kpiValue{
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  line-height: 1.05;
-}
-.kpiTrend{
-  margin-top: 10px;
-  font-size: 12px;
-  color: rgba(232,236,242,0.85);
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-.kpiArrow{ opacity: 0.9; }
-.kpiHint{
-  color: rgba(232,236,242,0.55);
-}
-
-/* ✅ Multi-row Card */
-.multirowCard{
-  width:100%;
-  height:100%;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.02);
-  overflow:hidden;
-}
-.mRow{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.mRow:last-child{ border-bottom:none; }
-.mLabel{
-  font-size: 12px;
-  color: rgba(232,236,242,0.78);
-}
-.mValue{
-  font-size: 14px;
-  font-weight: 800;
-}
-
-/* ✅ Text Box */
-.textBoxHost{
-  width:100%;
-  height:100%;
-  border-radius: 12px;
-  overflow:hidden;
-}
-.textBoxEditor{
-  width:100%;
-  height:100%;
-  padding: 10px 12px;
-  outline:none;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  background: rgba(0,0,0,0.15);
-  user-select:text;
-  cursor:text;
-  white-space:pre-wrap;
-  word-break:break-word;
-}
-
 /* Resize handles */
 .handle{
   position:absolute;
@@ -547,12 +462,6 @@ body{
 .handle.e{ right:-5px; top: calc(50% - 5px); cursor:ew-resize; }
 
 /* Format pane */
-.formatBody{
-  height: calc(100% - 24px);
-  overflow:auto; /* only inside format pane */
-  padding-right: 2px;
-}
-
 .fSection{
   border: 1px solid rgba(255,255,255,0.08);
   background: rgba(255,255,255,0.03);
@@ -589,7 +498,6 @@ body{
   display:flex;
   flex-direction:column;
   gap:6px;
-  min-width: 0; /* ✅ prevent overflow in pane */
 }
 .label{
   font-size: 11px;
@@ -603,7 +511,6 @@ body{
   padding: 8px 10px;
   font-size: 12px;
   outline:none;
-  width:100%;
 }
 .input:focus, .select:focus{
   border-color: rgba(59,130,246,0.6);
@@ -631,25 +538,42 @@ body{
   flex-wrap:wrap;
 }
 
-/* mini toolbar buttons for text box formatting */
-.miniBtns{
+/* KPI / Card / Textbox styles inside visuals */
+.kpiHost {
+  width:100%;
+  height:100%;
   display:flex;
-  gap:8px;
-  flex-wrap:wrap;
+  flex-direction:column;
+  justify-content:center;
+  align-items:flex-start;
+  gap:6px;
+  padding: 10px;
 }
-.miniBtn{
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
-  color: rgba(232,236,242,0.92);
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  cursor:pointer;
+.kpiValue {
+  font-size: 28px;
+  font-weight:800;
+  color: var(--text);
 }
-.miniBtn:hover{ background: rgba(255,255,255,0.07); }
-.miniBtn.active{
-  border-color: rgba(59,130,246,0.55);
-  background: rgba(59,130,246,0.18);
+.kpiLabel {
+  font-size:12px;
+  color: rgba(232,236,242,0.85);
+}
+
+/* Textbox editable */
+.textboxHost {
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:flex-start;
+  justify-content:flex-start;
+  padding: 8px;
+}
+.textboxContent {
+  width:100%;
+  height:100%;
+  display:block;
+  outline:none;
+  resize:none;
 }
 
 /* Toast */
@@ -711,3 +635,4 @@ body{
   justify-content:flex-end;
   gap:10px;
 }
+```

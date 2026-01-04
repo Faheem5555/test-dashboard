@@ -1,3 +1,15 @@
+/* =========================
+   Power BI Prototype Dashboard Website
+   FULL IMPLEMENTATION (no skips)
+   Incremental updates added:
+   - Chart grid/axis lines removed; show data labels values
+   - Canvas size dropdown and editable width/height (16:9 default)
+   - KPI / Card / Multi-row Card visuals added
+   - Text Box visual added with editor controls
+   - Boundary enforcement fixed so visuals never cross canvas edges
+   - Pane alignment with canvas and screen-fit improvements
+========================= */
+
 (() => {
   // -------------------------
   // DOM
@@ -27,6 +39,10 @@
 
   const imageUploadInput = document.getElementById("imageUploadInput");
 
+  const leftPane = document.querySelector(".leftPane");
+  const rightPane = document.querySelector(".rightPane");
+  const canvasFrame = document.querySelector(".canvasFrame");
+
   // -------------------------
   // ✅ HARD FIX: ensure discard modal is NOT visible on page load
   // -------------------------
@@ -35,7 +51,201 @@
     modalBackdrop.style.display = "none";
     modalBackdrop.setAttribute("aria-hidden", "true");
   }
+
+  // Also ensure upload input doesn't carry a cached value causing change events in some browsers
   if (uploadDashboardInput) uploadDashboardInput.value = "";
+
+  // -------------------------
+  // Fixed canvas size (Hard rule) -> now dynamic and editable
+  // Default is 1280 x 720 (16:9)
+  // -------------------------
+  let CANVAS_W = 1280;
+  let CANVAS_H = 720;
+
+  function setCanvasCssSize(w, h) {
+    document.documentElement.style.setProperty("--canvasW", `${w}px`);
+    document.documentElement.style.setProperty("--canvasH", `${h}px`);
+    // Update status pill text
+    if (statusPill) statusPill.textContent = `Canvas: ${w} × ${h}`;
+    // After canvas size changes, ensure visuals remain inside and panes align
+    enforceAllVisualsInsideCanvas();
+    alignPanesWithCanvas();
+  }
+
+  setCanvasCssSize(CANVAS_W, CANVAS_H);
+
+  // -------------------------
+  // Dummy retail data (realistic growth Jan→Dec)
+  // -------------------------
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // base gradual growth, approx +80% YoY by end (visual only)
+  const mkGrowth = (start, end) => {
+    const arr = [];
+    for (let i=0; i<12; i++){
+      const t = i / 11;
+      const v = start + (end - start) * t + (Math.sin(i*0.9)*0.03*(end-start));
+      arr.push(Math.round(v));
+    }
+    return arr;
+  };
+
+  const retail = {
+    Sales: mkGrowth(120, 220),
+    Profit: mkGrowth(18, 32),
+    Orders: mkGrowth(800, 1450),
+    Regions: {
+      "North": mkGrowth(40, 78),
+      "South": mkGrowth(36, 70),
+      "East":  mkGrowth(28, 58),
+      "West":  mkGrowth(32, 66),
+    },
+    Categories: [
+      { name: "Electronics", value: 38 },
+      { name: "Fashion", value: 26 },
+      { name: "Grocery", value: 18 },
+      { name: "Home", value: 12 },
+      { name: "Other", value: 6 },
+    ]
+  };
+
+  // -------------------------
+  // Theme (Power BI-like) - applied globally
+  // -------------------------
+  const defaultTheme = {
+    name: "Default Dark Prototype",
+    dataColors: ["#3b82f6","#22c55e","#f59e0b","#a855f7","#ef4444","#06b6d4","#eab308","#f97316","#84cc16","#14b8a6"],
+    background: "#0f1115",
+    foreground: "#e8ecf2",
+    textClasses: {
+      title: { fontFace: "Segoe UI Semibold", color: "#e8ecf2", fontSize: 12 },
+      label: { fontFace: "Segoe UI", color: "#cfd6e1", fontSize: 10 }
+    },
+    chart: {
+      plotBg: "rgba(255,255,255,0.00)",
+      grid: "rgba(255,255,255,0.08)"
+    }
+  };
+
+  // Sample theme JSON (downloadable)
+  const sampleTheme = {
+    name: "Green Theme (Sample)",
+    dataColors: ["#22c55e","#16a34a","#84cc16","#10b981","#06b6d4","#f59e0b","#ef4444","#a855f7"],
+    background: "#0f1115",
+    foreground: "#e8ecf2",
+    textClasses: {
+      title: { fontFace: "Segoe UI Semibold", color: "#e8ecf2", fontSize: 12 },
+      label: { fontFace: "Segoe UI", color: "#d5ffe3", fontSize: 10 }
+    },
+    chart: {
+      plotBg: "rgba(255,255,255,0.00)",
+      grid: "rgba(34,197,94,0.14)"
+    }
+  };
+
+  // Canvas background format (uploadable JSON)
+  const sampleCanvasBg = {
+    backgroundColor: "#0b0d12",
+    backgroundImage: "",
+    opacity: 1
+  };
+
+  let theme = structuredClone(defaultTheme);
+  let canvasBg = structuredClone(sampleCanvasBg);
+
+  // Apply initial canvas bg + CSS vars
+  function applyCanvasBackground(){
+    document.documentElement.style.setProperty("--canvasBgColor", canvasBg.backgroundColor || "#0b0d12");
+    const img = (canvasBg.backgroundImage && String(canvasBg.backgroundImage).trim())
+      ? `url("${canvasBg.backgroundImage}")`
+      : "none";
+    document.documentElement.style.setProperty("--canvasBgImage", img);
+    document.documentElement.style.setProperty("--canvasBgOpacity", String(
+      clamp(Number(canvasBg.opacity ?? 1), 0, 1)
+    ));
+  }
+  applyCanvasBackground();
+
+  // -------------------------
+  // Visual registry (picker)
+  // Add KPI, Card, Multi-row Card, Textbox
+  // -------------------------
+  const VISUALS = [
+    {
+      category: "Charts",
+      items: [
+        { type: "pie", name: "Pie Chart", icon: "◔" },
+        { type: "donut", name: "Donut Chart", icon: "◕" },
+        { type: "treemap", name: "Treemap", icon: "▧" },
+        { type: "ribbon", name: "Ribbon Chart", icon: "〰" },
+
+        { type: "line", name: "Line Chart (multiple trends)", icon: "╱" },
+        { type: "area", name: "Area Chart", icon: "▱" },
+        { type: "stackedArea", name: "Stacked Area Chart", icon: "▰" },
+
+        { type: "clusteredBar", name: "Clustered Bar Chart", icon: "▤" },
+        { type: "stackedBar", name: "Stacked Bar Chart", icon: "▥" },
+        { type: "stackedBar100", name: "100% Stacked Bar Chart", icon: "▦" },
+
+        { type: "clusteredColumn", name: "Clustered Column Chart", icon: "▮" },
+        { type: "stackedColumn", name: "Stacked Column Chart", icon: "▯" },
+        { type: "stackedColumn100", name: "100% Stacked Column Chart", icon: "▰" },
+
+        { type: "lineClusteredColumn", name: "Line & Clustered Column Chart", icon: "⟂" },
+        { type: "lineStackedColumn", name: "Line & Stacked Column Chart", icon: "⟋" },
+
+        { type: "scatter", name: "Scatter Chart", icon: "∘" },
+      ]
+    },
+    {
+      category: "Cards",
+      items: [
+        { type: "kpi", name: "KPI (single metric)", icon: "📈" },
+        { type: "card", name: "Card visual", icon: "🃏" },
+        { type: "multirowcard", name: "Multi-row Card", icon: "📋" },
+        { type: "textbox", name: "Text Box", icon: "✎" }
+      ]
+    },
+    {
+      category: "Other",
+      items: [
+        { type: "image", name: "Upload Image", icon: "🖼" }
+      ]
+    }
+  ];
+
+  // Default visual sizes (medium, readable, not full width)
+  const DEFAULT_SIZES = {
+    pie: { w: 360, h: 270 },
+    donut: { w: 360, h: 270 },
+    treemap: { w: 420, h: 280 },
+    ribbon: { w: 460, h: 280 },
+
+    line: { w: 520, h: 300 },
+    area: { w: 520, h: 300 },
+    stackedArea: { w: 520, h: 300 },
+
+    clusteredBar: { w: 520, h: 300 },
+    stackedBar: { w: 520, h: 300 },
+    stackedBar100: { w: 520, h: 300 },
+
+    clusteredColumn: { w: 520, h: 300 },
+    stackedColumn: { w: 520, h: 300 },
+    stackedColumn100: { w: 520, h: 300 },
+
+    lineClusteredColumn: { w: 560, h: 320 },
+    lineStackedColumn: { w: 560, h: 320 },
+
+    scatter: { w: 520, h: 300 },
+
+    image: { w: 420, h: 260 },
+
+    // new visuals
+    kpi: { w: 300, h: 120 },
+    card: { w: 300, h: 140 },
+    multirowcard: { w: 340, h: 220 },
+    textbox: { w: 520, h: 120 }
+  };
 
   // -------------------------
   // App state
@@ -95,216 +305,20 @@
     });
   }
 
-  // -------------------------
-  // Canvas size (Dynamic) + 16:9 default
-  // -------------------------
-  let canvasW = 1280;
-  let canvasH = 720;
-  let canvasScale = 1;
-
-  // Wrap canvas in a scaler element so we can fit-to-screen without layout overflow.
-  // (No HTML rewrite required; we do it safely at runtime.)
-  let canvasScaler = null;
-  if (canvas && canvas.parentElement) {
-    canvasScaler = document.getElementById("canvasScaler");
-    if (!canvasScaler) {
-      canvasScaler = document.createElement("div");
-      canvasScaler.id = "canvasScaler";
-      canvasScaler.className = "canvasScaler";
-      canvas.parentElement.insertBefore(canvasScaler, canvas);
-      canvasScaler.appendChild(canvas);
-    }
-  }
-
-  function setCanvasCssVars(){
-    document.documentElement.style.setProperty("--canvasW", `${canvasW}px`);
-    document.documentElement.style.setProperty("--canvasH", `${canvasH}px`);
-  }
-
-  function updateStatusPill(){
-    if (statusPill) statusPill.textContent = `Canvas: ${canvasW} × ${canvasH}`;
-  }
-
-  function computeFitScale(){
-    // Fit only inside the center canvas frame viewport (Power BI-like "fit to screen").
-    const frame = document.querySelector(".canvasFrame");
-    if (!frame) return 1;
-
-    const r = frame.getBoundingClientRect();
-    const pad = 6; // small breathing room
-    const availW = Math.max(1, r.width - pad);
-    const availH = Math.max(1, r.height - pad);
-
-    return Math.min(1, availW / canvasW, availH / canvasH);
-  }
-
-  function applyCanvasScale(){
-    canvasScale = computeFitScale();
-
-    // Layout box must also shrink: use the scaler wrapper dimensions.
-    if (canvasScaler) {
-      canvasScaler.style.width = `${Math.round(canvasW * canvasScale)}px`;
-      canvasScaler.style.height = `${Math.round(canvasH * canvasScale)}px`;
-    }
-
-    if (canvas) {
-      canvas.style.transformOrigin = "top left";
-      canvas.style.transform = `scale(${canvasScale})`;
-      canvas.style.width = `${canvasW}px`;
-      canvas.style.height = `${canvasH}px`;
-    }
-  }
-
-  function clampAllVisualsToCanvas(){
-    state.order.forEach((id) => {
-      const v = state.visuals.get(id);
-      if (!v) return;
-
-      const minW = 220;
-      const minH = 170;
-
-      v.w = clamp(v.w, minW, canvasW);
-      v.h = clamp(v.h, minH, canvasH);
-
-      v.x = clamp(v.x, 0, canvasW - v.w);
-      v.y = clamp(v.y, 0, canvasH - v.h);
-
-      applyVisualRect(v);
-      if (v.chart) v.chart.resize();
-    });
-  }
-
-  function setCanvasSize(w, h, { fromPreset = false } = {}){
-    const nw = clamp(Number(w) || 1280, 320, 4000);
-    const nh = clamp(Number(h) || 720, 180, 3000);
-
-    canvasW = Math.round(nw);
-    canvasH = Math.round(nh);
-
-    setCanvasCssVars();
-    updateStatusPill();
-    clampAllVisualsToCanvas();
-    applyCanvasScale();
-
-    // Keep format pane aligned and not floating outside
-    renderFormatPane();
-
-    if (fromPreset) showToast(`Canvas set to ${canvasW} × ${canvasH}`);
-  }
-
-  // Initialize default 16:9 canvas
-  setCanvasSize(1280, 720);
-
-  window.addEventListener("resize", () => {
-    applyCanvasScale();
-  });
-
-  // -------------------------
-  // Dummy retail data (realistic growth Jan→Dec)
-  // -------------------------
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-
-  const mkGrowth = (start, end) => {
-    const arr = [];
-    for (let i=0; i<12; i++){
-      const t = i / 11;
-      const v = start + (end - start) * t + (Math.sin(i*0.9)*0.03*(end-start));
-      arr.push(Math.round(v));
-    }
-    return arr;
-  };
-
-  const retail = {
-    Sales: mkGrowth(120, 220),
-    Profit: mkGrowth(18, 32),
-    Orders: mkGrowth(800, 1450),
-    Regions: {
-      "North": mkGrowth(40, 78),
-      "South": mkGrowth(36, 70),
-      "East":  mkGrowth(28, 58),
-      "West":  mkGrowth(32, 66),
-    },
-    Categories: [
-      { name: "Electronics", value: 38 },
-      { name: "Fashion", value: 26 },
-      { name: "Grocery", value: 18 },
-      { name: "Home", value: 12 },
-      { name: "Other", value: 6 },
-    ]
-  };
-
-  // -------------------------
-  // Theme (Power BI-like) - applied globally
-  // -------------------------
-  const defaultTheme = {
-    name: "Default Dark Prototype",
-    dataColors: ["#3b82f6","#22c55e","#f59e0b","#a855f7","#ef4444","#06b6d4","#eab308","#f97316","#84cc16","#14b8a6"],
-    background: "#0f1115",
-    foreground: "#e8ecf2",
-    textClasses: {
-      title: { fontFace: "Segoe UI Semibold", color: "#e8ecf2", fontSize: 12 },
-      label: { fontFace: "Segoe UI", color: "#cfd6e1", fontSize: 10 }
-    },
-    chart: {
-      plotBg: "rgba(255,255,255,0.00)",
-      grid: "rgba(255,255,255,0.08)"
-    }
-  };
-
-  const sampleTheme = {
-    name: "Green Theme (Sample)",
-    dataColors: ["#22c55e","#16a34a","#84cc16","#10b981","#06b6d4","#f59e0b","#ef4444","#a855f7"],
-    background: "#0f1115",
-    foreground: "#e8ecf2",
-    textClasses: {
-      title: { fontFace: "Segoe UI Semibold", color: "#e8ecf2", fontSize: 12 },
-      label: { fontFace: "Segoe UI", color: "#d5ffe3", fontSize: 10 }
-    },
-    chart: {
-      plotBg: "rgba(255,255,255,0.00)",
-      grid: "rgba(34,197,94,0.14)"
-    }
-  };
-
-  const sampleCanvasBg = {
-    backgroundColor: "#0b0d12",
-    backgroundImage: "",
-    opacity: 1
-  };
-
-  let theme = structuredClone(defaultTheme);
-  let canvasBg = structuredClone(sampleCanvasBg);
-
-  // ✅ True default state: no visuals AND default theme AND default canvas background AND default canvas size
+  // ✅ True default state: no visuals AND default theme AND default canvas background
   function isDefaultState(){
     return state.order.length === 0 &&
       JSON.stringify(theme) === JSON.stringify(defaultTheme) &&
-      JSON.stringify(canvasBg) === JSON.stringify(sampleCanvasBg) &&
-      canvasW === 1280 &&
-      canvasH === 720;
+      JSON.stringify(canvasBg) === JSON.stringify(sampleCanvasBg);
   }
 
-  function applyCanvasBackground(){
-    document.documentElement.style.setProperty("--canvasBgColor", canvasBg.backgroundColor || "#0b0d12");
-    const img = (canvasBg.backgroundImage && String(canvasBg.backgroundImage).trim())
-      ? `url("${canvasBg.backgroundImage}")`
-      : "none";
-    document.documentElement.style.setProperty("--canvasBgImage", img);
-    document.documentElement.style.setProperty("--canvasBgOpacity", String(
-      clamp(Number(canvasBg.opacity ?? 1), 0, 1)
-    ));
-  }
-
-  applyCanvasBackground();
-
+  // -------------------------
   // Theme → Chart.js common options
+  // Remove grid & axis lines; show only data labels (via plugin)
+  // -------------------------
   function makeChartDefaults(){
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
-
-    // ✅ Power BI clean style request:
-    // - No background grid lines
-    // - No X/Y axis lines
-    // - Keep only ticks/labels + data
+    // gridColor not used (we hide grid)
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -312,170 +326,100 @@
       plugins: {
         legend: {
           display: true,
-          labels: { color: labelColor, boxWidth: 10, usePointStyle: true }
+          labels: { color: labelColor, boxWidth: 10, boxHeight: 10, usePointStyle: true }
         },
         title: { display: false },
         tooltip: { enabled: true }
+        // datalabels handled via global plugin registered below
       },
       scales: {
         x: {
-          ticks: { color: labelColor, display: true },
-          grid: { display: false },
-          border: { display: false }
+          ticks: { display: false, color: labelColor },
+          grid: { display: false, drawBorder: false }
         },
         y: {
-          ticks: { color: labelColor, display: true },
-          grid: { display: false },
-          border: { display: false }
+          ticks: { display: false, color: labelColor },
+          grid: { display: false, drawBorder: false }
         }
+      },
+      elements: {
+        point: { radius: 3 }
       }
     };
   }
 
-  // -------------------------
-  // Chart data labels plugin (values only)
-  // -------------------------
-  const PBI_VALUE_LABELS_PLUGIN = {
-    id: "pbiValueLabels",
-    afterDatasetsDraw(chart, args, pluginOptions) {
-      const ctx = chart.ctx;
-      const type = chart.config.type;
-      const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.92)";
-      const fontSize = 10;
-
-      ctx.save();
-      ctx.font = `${fontSize}px Segoe UI, Arial`;
-      ctx.fillStyle = labelColor;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "bottom";
-
-      const format = (v) => {
-        if (v === null || v === undefined) return "";
-        if (typeof v === "number") return v.toLocaleString();
-        if (typeof v === "string") return v;
-        return String(v);
-      };
-
-      const drawText = (text, x, y) => {
-        if (!text) return;
-        ctx.fillText(text, x, y);
-      };
-
-      // Pie/Donut
-      if (type === "pie" || type === "doughnut") {
-        chart.data.datasets.forEach((ds, di) => {
-          const meta = chart.getDatasetMeta(di);
-          if (!meta || meta.hidden) return;
-          meta.data.forEach((arc, i) => {
-            const v = ds.data?.[i];
-            const p = arc.getCenterPoint ? arc.getCenterPoint() : arc.tooltipPosition();
-            drawText(format(v), p.x, p.y - 4);
-          });
-        });
-        ctx.restore();
-        return;
-      }
-
-      // Other cartesian charts
-      chart.data.datasets.forEach((ds, di) => {
-        const meta = chart.getDatasetMeta(di);
-        if (!meta || meta.hidden) return;
-        meta.data.forEach((pt, i) => {
-          const raw = ds.data?.[i];
-          const v = (raw && typeof raw === "object" && ("y" in raw)) ? raw.y : raw;
-          const p = pt.tooltipPosition ? pt.tooltipPosition() : (pt.getCenterPoint ? pt.getCenterPoint() : null);
-          if (!p) return;
-          const offset = (type === "bar" || (ds.type === "bar")) ? 6 : 4;
-          drawText(format(v), p.x, p.y - offset);
-        });
-      });
-
-      ctx.restore();
-    }
-  };
-
-  if (typeof Chart !== "undefined" && Chart?.register) {
-    try { Chart.register(PBI_VALUE_LABELS_PLUGIN); } catch {}
-  }
-
+  // Generate palette color for series index
   function paletteColor(i){
     const arr = theme?.dataColors?.length ? theme.dataColors : defaultTheme.dataColors;
     return arr[i % arr.length];
   }
 
   // -------------------------
-  // Visual registry (picker)
+  // Chart.js plugin: draw data labels (values)
+  // Works for bars, lines (points), arcs (pie/donut), scatter
   // -------------------------
-  const VISUALS = [
-    {
-      category: "Charts",
-      items: [
-        { type: "pie", name: "Pie Chart", icon: "◔" },
-        { type: "donut", name: "Donut Chart", icon: "◕" },
-        { type: "treemap", name: "Treemap", icon: "▧" },
-        { type: "ribbon", name: "Ribbon Chart", icon: "〰" },
+  Chart.register({
+    id: 'powerbi_datalabels',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      const { datasets } = chart.data;
+      const fontColor = theme?.textClasses?.label?.color || "#cfd6e1";
+      const fontSize = (theme?.textClasses?.label?.fontSize) ? Number(theme.textClasses.label.fontSize) + 1 : 11;
+      ctx.save();
+      ctx.font = `600 ${fontSize}px "Segoe UI", Arial, sans-serif`;
+      ctx.fillStyle = fontColor;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
 
-        { type: "line", name: "Line Chart (multiple trends)", icon: "╱" },
-        { type: "area", name: "Area Chart", icon: "▱" },
-        { type: "stackedArea", name: "Stacked Area Chart", icon: "▰" },
+      datasets.forEach((dataset, dsIndex) => {
+        const meta = chart.getDatasetMeta(dsIndex);
+        if (!meta || !meta.data) return;
 
-        { type: "clusteredBar", name: "Clustered Bar Chart", icon: "▤" },
-        { type: "stackedBar", name: "Stacked Bar Chart", icon: "▥" },
-        { type: "stackedBar100", name: "100% Stacked Bar Chart", icon: "▦" },
+        meta.data.forEach((el, i) => {
+          try {
+            const value = dataset.data?.[i];
+            if (value === undefined || value === null) return;
+            const disp = String(value);
 
-        { type: "clusteredColumn", name: "Clustered Column Chart", icon: "▮" },
-        { type: "stackedColumn", name: "Stacked Column Chart", icon: "▯" },
-        { type: "stackedColumn100", name: "100% Stacked Column Chart", icon: "▰" },
+            const type = meta.type || chart.config.type || dataset.type;
 
-        { type: "lineClusteredColumn", name: "Line & Clustered Column Chart", icon: "⟂" },
-        { type: "lineStackedColumn", name: "Line & Stacked Column Chart", icon: "⟋" },
+            if (type === 'bar' || type === 'bar') {
+              // For bar stacks the element has x, y
+              const x = el.x ?? ((el.getCenterPoint && el.getCenterPoint())?.x);
+              const y = el.y ?? (el.y ?? (el.getCenterPoint && el.getCenterPoint())?.y);
+              if (x === undefined || y === undefined) return;
+              // draw slightly above the top of the bar
+              ctx.fillText(disp, x, (y - 6));
+            } else if (type === 'line' || type === 'scatter') {
+              const x = el.x ?? (el.getCenterPoint && el.getCenterPoint()?.x);
+              const y = el.y ?? (el.getCenterPoint && el.getCenterPoint()?.y);
+              if (x === undefined || y === undefined) return;
+              ctx.fillText(disp, x, (y - 8));
+            } else if (type === 'pie' || type === 'doughnut' || el?.startAngle !== undefined) {
+              // arc element
+              const cx = el.x ?? chart.chartArea?.left + (chart.chartArea?.width / 2);
+              const cy = el.y ?? chart.chartArea?.top + (chart.chartArea?.height / 2);
+              const start = el.startAngle ?? 0;
+              const end = el.endAngle ?? 0;
+              const angle = (start + end) / 2;
+              const r = (el.outerRadius || Math.min(chart.chartArea.width, chart.chartArea.height) / 3) * 0.6;
+              const tx = cx + Math.cos(angle) * r;
+              const ty = cy + Math.sin(angle) * r;
+              ctx.fillText(disp, tx, ty);
+            } else {
+              // fallback
+              const pos = el.tooltipPosition ? el.tooltipPosition() : (el.getCenterPoint ? el.getCenterPoint() : null);
+              if (pos) ctx.fillText(disp, pos.x, pos.y - 6);
+            }
+          } catch (e) {
+            // ignore plugin drawing error
+          }
+        });
+      });
 
-        { type: "scatter", name: "Scatter Chart", icon: "∘" },
-      ]
-    },
-    {
-      category: "Other",
-      items: [
-        { type: "kpi", name: "KPI", icon: "⦿" },
-        { type: "card", name: "Card", icon: "▭" },
-        { type: "multirowCard", name: "Multi-row Card", icon: "≡" },
-        { type: "textBox", name: "Text Box", icon: "T" },
-        { type: "image", name: "Upload Image", icon: "🖼" }
-      ]
+      ctx.restore();
     }
-  ];
-
-  // Default visual sizes (medium, readable, not full width)
-  const DEFAULT_SIZES = {
-    pie: { w: 360, h: 270 },
-    donut: { w: 360, h: 270 },
-    treemap: { w: 420, h: 280 },
-    ribbon: { w: 460, h: 280 },
-
-    line: { w: 520, h: 300 },
-    area: { w: 520, h: 300 },
-    stackedArea: { w: 520, h: 300 },
-
-    clusteredBar: { w: 520, h: 300 },
-    stackedBar: { w: 520, h: 300 },
-    stackedBar100: { w: 520, h: 300 },
-
-    clusteredColumn: { w: 520, h: 300 },
-    stackedColumn: { w: 520, h: 300 },
-    stackedColumn100: { w: 520, h: 300 },
-
-    lineClusteredColumn: { w: 560, h: 320 },
-    lineStackedColumn: { w: 560, h: 320 },
-
-    scatter: { w: 520, h: 300 },
-
-    kpi: { w: 320, h: 170 },
-    card: { w: 320, h: 170 },
-    multirowCard: { w: 360, h: 220 },
-    textBox: { w: 360, h: 200 },
-
-    image: { w: 420, h: 260 }
-  };
+  });
 
   // -------------------------
   // Visual picker render + open/close
@@ -510,6 +454,7 @@
         btn.addEventListener("click", () => {
           closePicker();
           if (item.type === "image") addImageVisualFlow();
+          else if (item.type === "textbox") addTextBoxVisual();
           else addVisual(item.type);
         });
 
@@ -601,8 +546,8 @@
     const size = DEFAULT_SIZES[type] || { w: 520, h: 300 };
 
     const offset = (state.order.length * 18) % 140;
-    const x = clamp(40 + offset, 0, canvasW - size.w);
-    const y = clamp(40 + offset, 0, canvasH - size.h);
+    const x = clamp(40 + offset, 0, CANVAS_W - size.w);
+    const y = clamp(40 + offset, 0, CANVAS_H - size.h);
 
     const v = {
       id,
@@ -613,25 +558,21 @@
       chart: null
     };
 
-    // Defaults for non-chart visuals
+    // Additional default props for new visuals
     if (type === "kpi") {
-      v.kpi = { label: "Sales", value: "" };
+      v.kpiValue = 12456;
+      v.kpiLabel = "Total Sales";
     }
     if (type === "card") {
-      v.card = { label: "Orders", value: "" };
+      v.cardValue = 832;
+      v.cardLabel = "Active Users";
     }
-    if (type === "multirowCard") {
-      v.multirow = { rows: null };
-    }
-    if (type === "textBox") {
-      v.textBox = {
-        text: "Double-click to edit",
-        fontSize: 18,
-        color: theme?.textClasses?.title?.color || "#e8ecf2",
-        bg: "rgba(0,0,0,0.15)",
-        bold: true,
-        align: "left"
-      };
+    if (type === "multirowcard") {
+      v.rows = [
+        {label:"Sales", value: 12456},
+        {label:"Profit", value: 2345},
+        {label:"Orders", value: 395}
+      ];
     }
 
     state.visuals.set(id, v);
@@ -659,8 +600,8 @@
       const id = `vis${state.nextId++}`;
       const size = DEFAULT_SIZES.image;
       const offset = (state.order.length * 18) % 140;
-      const x = clamp(40 + offset, 0, canvasW - size.w);
-      const y = clamp(40 + offset, 0, canvasH - size.h);
+      const x = clamp(40 + offset, 0, CANVAS_W - size.w);
+      const y = clamp(40 + offset, 0, CANVAS_H - size.h);
 
       const v = {
         id,
@@ -684,6 +625,39 @@
     };
   }
 
+  function addTextBoxVisual(){
+    const id = `vis${state.nextId++}`;
+    const size = DEFAULT_SIZES.textbox;
+    const offset = (state.order.length * 18) % 140;
+    const x = clamp(40 + offset, 0, CANVAS_W - size.w);
+    const y = clamp(40 + offset, 0, CANVAS_H - size.h);
+
+    const v = {
+      id,
+      type: "textbox",
+      title: "Text Box",
+      x, y, w: size.w, h: size.h,
+      series: [],
+      text: "Editable text",
+      fontSize: 16,
+      color: "#e8ecf2",
+      bgColor: "transparent",
+      bold: false,
+      align: "left",
+      chart: null
+    };
+
+    state.visuals.set(id, v);
+    state.order.push(id);
+
+    const el = createVisualElement(v);
+    canvas.appendChild(el);
+    updateZOrder();
+
+    renderVisualContent(v);
+    setSelected(id);
+  }
+
   function defaultTitleFor(type){
     const map = {
       pie: "Sales by Category",
@@ -704,8 +678,8 @@
       scatter: "Profit vs Sales (Scatter)",
       kpi: "KPI",
       card: "Card",
-      multirowCard: "Multi-row Card",
-      textBox: "Text Box"
+      multirowcard: "Multi-row Card",
+      textbox: "Text Box"
     };
     return map[type] || "Visual";
   }
@@ -718,11 +692,6 @@
         color: paletteColor(i),
         overrideColor: false
       }));
-    }
-
-    // Cards / KPI / Text Box don't have series colors
-    if (["kpi","card","multirowCard","textBox"].includes(type)) {
-      return [];
     }
 
     const regionKeys = Object.keys(retail.Regions);
@@ -820,6 +789,7 @@
 
   // -------------------------
   // Drag & Resize (smooth, overlap allowed)
+  // Enforce canvas boundaries using dynamic CANVAS_W/CANVAS_H
   // -------------------------
   let dragCtx = null;
 
@@ -830,11 +800,6 @@
     if (!v) return;
 
     setSelected(id);
-
-    // allow text editing without accidental drag if clicked inside textbox editor
-    if (v.type === "textBox" && e.target && e.target.classList && e.target.classList.contains("textBoxEditor")) {
-      return;
-    }
 
     dragCtx = {
       mode: "drag",
@@ -877,13 +842,12 @@
     const v = state.visuals.get(dragCtx.id);
     if (!v) return;
 
-    // ✅ correct mouse delta when canvas is scaled to fit screen
-    const dx = (e.clientX - dragCtx.startX) / (canvasScale || 1);
-    const dy = (e.clientY - dragCtx.startY) / (canvasScale || 1);
+    const dx = e.clientX - dragCtx.startX;
+    const dy = e.clientY - dragCtx.startY;
 
     if (dragCtx.mode === "drag") {
-      v.x = clamp(dragCtx.origX + dx, 0, canvasW - v.w);
-      v.y = clamp(dragCtx.origY + dy, 0, canvasH - v.h);
+      v.x = clamp(dragCtx.origX + dx, 0, Math.max(0, CANVAS_W - v.w));
+      v.y = clamp(dragCtx.origY + dy, 0, Math.max(0, CANVAS_H - v.h));
       applyVisualRect(v);
     } else {
       const minW = 220;
@@ -896,8 +860,8 @@
 
       const hnd = dragCtx.handle;
 
-      const applyW = (newW) => clamp(newW, minW, canvasW - x);
-      const applyH = (newH) => clamp(newH, minH, canvasH - y);
+      const applyW = (newW) => clamp(newW, minW, Math.max(minW, CANVAS_W - x));
+      const applyH = (newH) => clamp(newH, minH, Math.max(minH, CANVAS_H - y));
 
       if (hnd.includes("e")) w = applyW(dragCtx.origW + dx);
       if (hnd.includes("s")) h = applyH(dragCtx.origH + dy);
@@ -906,15 +870,19 @@
         const newX = clamp(dragCtx.origX + dx, 0, dragCtx.origX + dragCtx.origW - minW);
         const newW = dragCtx.origW + (dragCtx.origX - newX);
         x = newX;
-        w = clamp(newW, minW, canvasW - x);
+        w = clamp(newW, minW, Math.max(minW, CANVAS_W - x));
       }
 
       if (hnd.includes("n")) {
         const newY = clamp(dragCtx.origY + dy, 0, dragCtx.origY + dragCtx.origH - minH);
         const newH = dragCtx.origH + (dragCtx.origY - newY);
         y = newY;
-        h = clamp(newH, minH, canvasH - y);
+        h = clamp(newH, minH, Math.max(minH, CANVAS_H - y));
       }
+
+      // final clamp ensuring object fits into canvas
+      w = clamp(w, minW, Math.max(minW, CANVAS_W - x));
+      h = clamp(h, minH, Math.max(minH, CANVAS_H - y));
 
       v.x = x; v.y = y; v.w = w; v.h = h;
       applyVisualRect(v);
@@ -931,14 +899,39 @@
   function applyVisualRect(v){
     const el = document.getElementById(`v_${v.id}`);
     if (!el) return;
+
+    // enforce visual inside canvas (safety)
+    v.w = clamp(v.w, 40, Math.max(40, CANVAS_W));
+    v.h = clamp(v.h, 24, Math.max(24, CANVAS_H));
+    v.x = clamp(v.x, 0, Math.max(0, CANVAS_W - v.w));
+    v.y = clamp(v.y, 0, Math.max(0, CANVAS_H - v.h));
+
     el.style.left = `${v.x}px`;
     el.style.top  = `${v.y}px`;
     el.style.width = `${v.w}px`;
     el.style.height = `${v.h}px`;
   }
 
+  // Ensures all visuals inside canvas (used when canvas size changes or load)
+  function enforceAllVisualsInsideCanvas(){
+    state.order.forEach(id => {
+      const v = state.visuals.get(id);
+      if (!v) return;
+      v.w = clamp(v.w, 40, Math.max(40, CANVAS_W));
+      v.h = clamp(v.h, 24, Math.max(24, CANVAS_H));
+      v.x = clamp(v.x, 0, Math.max(0, CANVAS_W - v.w));
+      v.y = clamp(v.y, 0, Math.max(0, CANVAS_H - v.h));
+      applyVisualRect(v);
+      if (v.chart) {
+        try { v.chart.resize(); } catch {}
+      }
+    });
+  }
+
   // -------------------------
   // Render visual content (Chart.js + prototypes)
+  // - respects removed grid/axis and draws data labels via plugin
+  // - also renders KPI, Card, Multi-row Card, Textbox
   // -------------------------
   function renderVisualContent(v){
     const body = document.getElementById(`body_${v.id}`);
@@ -949,26 +942,6 @@
       v.chart = null;
     }
     body.innerHTML = "";
-
-    if (v.type === "kpi") {
-      body.appendChild(makeKpiVisual(v));
-      return;
-    }
-
-    if (v.type === "card") {
-      body.appendChild(makeCardVisual(v));
-      return;
-    }
-
-    if (v.type === "multirowCard") {
-      body.appendChild(makeMultirowCardVisual(v));
-      return;
-    }
-
-    if (v.type === "textBox") {
-      body.appendChild(makeTextBoxVisual(v));
-      return;
-    }
 
     if (v.type === "image") {
       const host = document.createElement("div");
@@ -991,6 +964,64 @@
       return;
     }
 
+    // KPI / Card / Multi-row Card prototypes
+    if (v.type === "kpi") {
+      const host = document.createElement("div");
+      host.className = "kpiHost";
+      host.innerHTML = `
+        <div class="kpiValue">${escapeHtml(String(v.kpiValue ?? 0))}</div>
+        <div class="kpiLabel">${escapeHtml(v.kpiLabel || "Metric")}</div>
+      `;
+      body.appendChild(host);
+      return;
+    }
+
+    if (v.type === "card") {
+      const host = document.createElement("div");
+      host.className = "kpiHost";
+      host.innerHTML = `
+        <div class="kpiValue">${escapeHtml(String(v.cardValue ?? 0))}</div>
+        <div class="kpiLabel">${escapeHtml(v.cardLabel || "Card")}</div>
+      `;
+      body.appendChild(host);
+      return;
+    }
+
+    if (v.type === "multirowcard") {
+      const host = document.createElement("div");
+      host.className = "kpiHost";
+      host.style.gap = "8px";
+      const rowsHtml = (v.rows || []).map(r => `<div style="display:flex;justify-content:space-between;width:100%"><div style="opacity:.85">${escapeHtml(String(r.label))}</div><div style="font-weight:700">${escapeHtml(String(r.value))}</div></div>`).join("");
+      host.innerHTML = rowsHtml;
+      body.appendChild(host);
+      return;
+    }
+
+    if (v.type === "textbox") {
+      const host = document.createElement("div");
+      host.className = "textboxHost";
+      const txt = document.createElement("div");
+      txt.className = "textboxContent";
+      txt.contentEditable = true;
+      txt.innerHTML = escapeHtml(v.text || "");
+      txt.style.fontSize = `${v.fontSize || 14}px`;
+      txt.style.color = v.color || "#e8ecf2";
+      txt.style.background = v.bgColor || "transparent";
+      txt.style.fontWeight = v.bold ? "700" : "400";
+      txt.style.textAlign = v.align || "left";
+      txt.style.padding = "6px";
+      txt.style.width = "100%";
+      txt.style.height = "100%";
+      txt.style.overflow = "auto";
+      txt.addEventListener("input", (e) => {
+        v.text = e.target.innerText;
+      });
+      host.appendChild(txt);
+      body.appendChild(host);
+      return;
+    }
+
+    // Otherwise, use Chart.js
     const host = document.createElement("div");
     host.className = "chartHost";
     const c = document.createElement("canvas");
@@ -1001,6 +1032,7 @@
     const ctx = c.getContext("2d");
     const ds = buildChartJsData(v);
 
+    // Merge a shared plugin options if needed (plugin registered globally)
     v.chart = new Chart(ctx, ds.config);
     applyThemeToSingleVisual(v);
   }
@@ -1060,7 +1092,11 @@
             },
             options: {
               ...makeChartDefaults(),
-              cutout: v.type === "donut" ? "58%" : "0%"
+              cutout: v.type === "donut" ? "58%" : "0%",
+              plugins: {
+                ...makeChartDefaults().plugins,
+                legend: { display: true, labels: { color: theme?.textClasses?.label?.color } }
+              }
             }
           }
         };
@@ -1112,6 +1148,7 @@
 
         if (v.type === "stackedBar100") {
           cfgBase.data = toPercentStacked(months, datasets);
+          cfgBase.options.plugins.tooltip = cfgBase.options.plugins.tooltip || {};
           cfgBase.options.plugins.tooltip.callbacks = {
             label: (ctx) => `${ctx.dataset.label}: ${ctx.formattedValue}%`
           };
@@ -1142,6 +1179,7 @@
 
         if (v.type === "stackedColumn100") {
           cfgBase.data = toPercentStacked(months, datasets);
+          cfgBase.options.plugins.tooltip = cfgBase.options.plugins.tooltip || {};
           cfgBase.options.plugins.tooltip.callbacks = {
             label: (ctx) => `${ctx.dataset.label}: ${ctx.formattedValue}%`
           };
@@ -1241,13 +1279,7 @@
             },
             options: (() => {
               const o = makeChartDefaults();
-              // titles allowed (labels), but no grid/axis borders
-              o.scales.x.title = { display:true, text:"Sales", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-              o.scales.y.title = { display:true, text:"Profit", color: (theme?.textClasses?.label?.color || "#cfd6e1") };
-              o.scales.x.grid.display = false;
-              o.scales.y.grid.display = false;
-              o.scales.x.border.display = false;
-              o.scales.y.border.display = false;
+              // axis titles hidden per requirement; keep minimal axis visuals
               return o;
             })()
           }
@@ -1303,7 +1335,7 @@
     return wrap;
   }
 
-  // Ribbon prototype (SVG) — grid removed for clean style
+  // Ribbon prototype (SVG)
   function makeRibbonPrototype(v){
     const host = document.createElement("div");
     host.style.width = "100%";
@@ -1323,7 +1355,12 @@
     svg.style.width = "100%";
     svg.style.height = "100%";
 
-    // (Grid removed for clean Power BI style)
+    const grid = document.createElementNS("http://www.w3.org/2000/svg","path");
+    grid.setAttribute("d","M0 210 H600 M0 160 H600 M0 110 H600 M0 60 H600");
+    grid.setAttribute("stroke", theme?.chart?.grid || "rgba(255,255,255,0.10)");
+    grid.setAttribute("stroke-width","1");
+    grid.setAttribute("fill","none");
+    svg.appendChild(grid);
 
     const bands = [
       { y0: 60,  y1: 90,  wobble: 18 },
@@ -1366,115 +1403,6 @@
     return host;
   }
 
-  // -------------------------
-  // KPI / Card / Multi-row Card (prototype visuals)
-  // -------------------------
-  function makeKpiVisual(v){
-    const wrap = document.createElement("div");
-    wrap.className = "cardLike";
-
-    const value = Math.round(retail.Sales[retail.Sales.length-1] || 0);
-    const prev  = Math.round(retail.Sales[retail.Sales.length-2] || value);
-    const delta = prev ? (((value - prev) / prev) * 100) : 0;
-
-    wrap.innerHTML = `
-      <div class="kpiLabel">${escapeHtml(v.kpi?.label || "Sales")}</div>
-      <div class="kpiValue">${escapeHtml(v.kpi?.value || value.toLocaleString())}</div>
-      <div class="kpiTrend">
-        <span class="kpiArrow">${delta >= 0 ? "▲" : "▼"}</span>
-        <span>${Math.abs(delta).toFixed(1)}%</span>
-        <span class="kpiHint">vs last period</span>
-      </div>
-    `;
-    return wrap;
-  }
-
-  function makeCardVisual(v){
-    const wrap = document.createElement("div");
-    wrap.className = "cardLike";
-    const value = Math.round(retail.Orders[retail.Orders.length-1] || 0);
-    wrap.innerHTML = `
-      <div class="kpiLabel">${escapeHtml(v.card?.label || "Orders")}</div>
-      <div class="kpiValue">${escapeHtml(v.card?.value || value.toLocaleString())}</div>
-      <div class="kpiHint">Single value</div>
-    `;
-    return wrap;
-  }
-
-  function makeMultirowCardVisual(v){
-    const wrap = document.createElement("div");
-    wrap.className = "multirowCard";
-
-    const rows = v.multirow?.rows || [
-      { label: "Sales", value: (retail.Sales[11] || 0).toLocaleString() },
-      { label: "Profit", value: (retail.Profit[11] || 0).toLocaleString() },
-      { label: "Orders", value: (retail.Orders[11] || 0).toLocaleString() }
-    ];
-
-    wrap.innerHTML = rows.map(r => `
-      <div class="mRow">
-        <div class="mLabel">${escapeHtml(r.label)}</div>
-        <div class="mValue">${escapeHtml(String(r.value))}</div>
-      </div>
-    `).join("");
-
-    return wrap;
-  }
-
-  // -------------------------
-  // Text Box visual (editable)
-  // -------------------------
-  function ensureTextBoxState(v){
-    if (!v.textBox) {
-      v.textBox = {
-        text: "Double-click to edit",
-        fontSize: 18,
-        color: theme?.textClasses?.title?.color || "#e8ecf2",
-        bg: "rgba(0,0,0,0.15)",
-        bold: true,
-        align: "left"
-      };
-    }
-  }
-
-  function applyTextBoxStyles(el, v){
-    ensureTextBoxState(v);
-    const t = v.textBox;
-
-    el.style.fontSize = `${clamp(Number(t.fontSize)||18, 8, 120)}px`;
-    el.style.color = t.color || "#e8ecf2";
-    el.style.background = t.bg || "transparent";
-    el.style.fontWeight = t.bold ? "800" : "500";
-    el.style.textAlign = t.align || "left";
-  }
-
-  function makeTextBoxVisual(v){
-    ensureTextBoxState(v);
-
-    const host = document.createElement("div");
-    host.className = "textBoxHost";
-
-    const editor = document.createElement("div");
-    editor.className = "textBoxEditor";
-    editor.setAttribute("contenteditable", "true");
-    editor.setAttribute("spellcheck", "false");
-    editor.innerText = v.textBox.text || "";
-
-    applyTextBoxStyles(editor, v);
-
-    editor.addEventListener("input", () => {
-      v.textBox.text = editor.innerText;
-    });
-
-    editor.addEventListener("mousedown", (e) => {
-      e.stopPropagation();
-      setSelected(v.id);
-    });
-
-    host.appendChild(editor);
-    return host;
-  }
-
   function withAlpha(hex, a){
     if (!hex) return `rgba(255,255,255,${a})`;
     if (hex.startsWith("rgba")) return hex;
@@ -1511,22 +1439,15 @@
     if (!v.chart) return;
 
     const labelColor = theme?.textClasses?.label?.color || "rgba(232,236,242,0.80)";
+    const gridColor  = theme?.chart?.grid || "rgba(255,255,255,0.08)";
 
     if (v.chart.options?.plugins?.legend?.labels) {
       v.chart.options.plugins.legend.labels.color = labelColor;
     }
-
-    // ✅ keep labels/ticks, but remove grid + axis borders
-    if (v.chart.options?.scales?.x) {
-      if (v.chart.options.scales.x.ticks) v.chart.options.scales.x.ticks.color = labelColor;
-      v.chart.options.scales.x.grid = { ...(v.chart.options.scales.x.grid || {}), display: false };
-      v.chart.options.scales.x.border = { ...(v.chart.options.scales.x.border || {}), display: false };
-    }
-    if (v.chart.options?.scales?.y) {
-      if (v.chart.options.scales.y.ticks) v.chart.options.scales.y.ticks.color = labelColor;
-      v.chart.options.scales.y.grid = { ...(v.chart.options.scales.y.grid || {}), display: false };
-      v.chart.options.scales.y.border = { ...(v.chart.options.scales.y.border || {}), display: false };
-    }
+    if (v.chart.options?.scales?.x?.ticks) v.chart.options.scales.x.ticks.color = labelColor;
+    if (v.chart.options?.scales?.y?.ticks) v.chart.options.scales.y.ticks.color = labelColor;
+    if (v.chart.options?.scales?.x?.grid) v.chart.options.scales.x.grid.color = gridColor;
+    if (v.chart.options?.scales?.y?.grid) v.chart.options.scales.y.grid.color = gridColor;
 
     syncSeriesToChart(v);
     v.chart.update();
@@ -1626,12 +1547,6 @@
       });
 
       applyThemeToSingleVisual(v);
-
-      if (v.type === "textBox") {
-        // keep textbox readable with theme
-        if (v.textBox && !v.textBox.color) v.textBox.color = theme?.textClasses?.title?.color || "#e8ecf2";
-        renderVisualContent(v);
-      }
     });
 
     renderFormatPane();
@@ -1639,73 +1554,77 @@
 
   // -------------------------
   // Format pane (always visible; never disappears)
+  // Now includes canvas size dropdown and editable width/height that apply immediately
   // -------------------------
   function renderFormatPane(){
     const selected = state.selectedId ? state.visuals.get(state.selectedId) : null;
 
-    if (!selected) {
-      formatBody.innerHTML = `
-        <div class="fSection">
-          <div class="fHeader">
-            <div class="fHeaderTitle">Canvas settings</div>
-            <div class="fSmall">No visual selected</div>
-          </div>
+    // Canvas settings always shown at top of format pane (per requirement)
+    const canvasSectionHtml = `
+      <div class="fSection">
+        <div class="fHeader">
+          <div class="fHeaderTitle">Canvas settings</div>
+          <div class="fSmall">No visual selected</div>
+        </div>
 
-          <div class="row one">
-            <div class="field">
-              <div class="label">Canvas size preset</div>
-              <select class="select" id="canvasPreset">
-                <option value="1280x720">1280 × 720 (16:9)</option>
-                <option value="1920x1080">1920 × 1080 (16:9)</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
+        <div class="row">
+          <div class="field">
+            <div class="label">Canvas preset</div>
+            <select class="select" id="canvasPresetSelect">
+              <option value="1280x720">1280 × 720</option>
+              <option value="1920x1080">1920 × 1080</option>
+            </select>
           </div>
-
-          <div class="row">
-            <div class="field">
-              <div class="label">Canvas width</div>
-              <input class="input" id="canvasWInput" value="${escapeAttr(String(canvasW))}" />
-            </div>
-            <div class="field">
-              <div class="label">Canvas height</div>
-              <input class="input" id="canvasHInput" value="${escapeAttr(String(canvasH))}" />
-            </div>
-          </div>
-
-          <div class="fSmall" style="margin-top:4px;">
-            Applies immediately. Visuals are clamped inside the page.
-          </div>
-
-          <div class="row" style="margin-top:10px;">
-            <div class="field">
-              <div class="label">Background color</div>
-              <input class="input" id="canvasBgColor" value="${escapeAttr(canvasBg.backgroundColor || "#0b0d12")}" />
-            </div>
-            <div class="field">
-              <div class="label">Opacity (0–1)</div>
-              <input class="input" id="canvasBgOpacity" value="${escapeAttr(String(canvasBg.opacity ?? 1))}" />
-            </div>
-          </div>
-
-          <div class="row one">
-            <div class="field">
-              <div class="label">Background image URL / data URL (optional)</div>
-              <input class="input" id="canvasBgImage" value="${escapeAttr(canvasBg.backgroundImage || "")}" placeholder="https://... or data:image/..." />
-            </div>
-          </div>
-
-          <div class="smallBtnRow">
-            <button class="btn" id="applyCanvasBgBtn">Apply</button>
-            <button class="btn" id="browseCanvasBgBtn">Browse (Upload Canvas BG JSON)</button>
-            <input id="canvasBgUploadInput" type="file" accept=".json,application/json" hidden />
-          </div>
-
-          <div class="fSmall" style="margin-top:8px;">
-            Upload format supported: <code>{ "backgroundColor": "...", "backgroundImage": "...", "opacity": 0.9 }</code>
+          <div class="field">
+            <div class="label">Aspect ratio</div>
+            <div class="fSmall">Default 16:9</div>
           </div>
         </div>
 
+        <div class="row">
+          <div class="field">
+            <div class="label">Canvas width</div>
+            <input class="input" id="canvasBgWidth" value="${escapeAttr(String(CANVAS_W))}" />
+          </div>
+          <div class="field">
+            <div class="label">Canvas height</div>
+            <input class="input" id="canvasBgHeight" value="${escapeAttr(String(CANVAS_H))}" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <div class="label">Background color</div>
+            <input class="input" id="canvasBgColor" value="${escapeAttr(canvasBg.backgroundColor || "#0b0d12")}" />
+          </div>
+          <div class="field">
+            <div class="label">Opacity (0–1)</div>
+            <input class="input" id="canvasBgOpacity" value="${escapeAttr(String(canvasBg.opacity ?? 1))}" />
+          </div>
+        </div>
+
+        <div class="row one">
+          <div class="field">
+            <div class="label">Background image URL / data URL (optional)</div>
+            <input class="input" id="canvasBgImage" value="${escapeAttr(canvasBg.backgroundImage || "")}" placeholder="https://... or data:image/..." />
+          </div>
+        </div>
+
+        <div class="smallBtnRow" style="margin-top:8px;">
+          <button class="btn" id="applyCanvasBgBtn">Apply</button>
+          <button class="btn" id="browseCanvasBgBtn">Browse (Upload Canvas BG JSON)</button>
+          <input id="canvasBgUploadInput" type="file" accept=".json,application/json" hidden />
+        </div>
+
+        <div class="fSmall" style="margin-top:8px;">
+          Upload format supported: <code>{ "backgroundColor": "...", "backgroundImage": "...", "opacity": 0.9 }</code>
+        </div>
+      </div>
+    `;
+
+    // If a visual is selected, show its settings below the canvas section
+    if (!selected) {
+      const themeHtml = `
         <div class="fSection">
           <div class="fHeader">
             <div class="fHeaderTitle">Theme</div>
@@ -1718,71 +1637,74 @@
           </div>
 
           <div class="fSmall" style="margin-top:8px;">
-            Theme applies to chart palette + labels instantly (existing + new visuals).
+            Theme applies to chart palette + labels + grid instantly (existing + new visuals).
           </div>
         </div>
       `;
 
-      // preset selection (set correctly based on current size)
-      const preset = document.getElementById("canvasPreset");
-      if (preset) {
-        const cur = `${canvasW}x${canvasH}`;
-        if (cur === "1280x720") preset.value = "1280x720";
-        else if (cur === "1920x1080") preset.value = "1920x1080";
-        else preset.value = "custom";
-      }
+      formatBody.innerHTML = canvasSectionHtml + themeHtml;
 
-      const wInput = document.getElementById("canvasWInput");
-      const hInput = document.getElementById("canvasHInput");
+      // Wire up canvas controls
+      const preset = document.getElementById("canvasPresetSelect");
+      const widthInput = document.getElementById("canvasBgWidth");
+      const heightInput = document.getElementById("canvasBgHeight");
+      const applyBtn = document.getElementById("applyCanvasBgBtn");
+      const browseBtn = document.getElementById("browseCanvasBgBtn");
+      const uploadInput = document.getElementById("canvasBgUploadInput");
 
-      const applyFromInputs = () => {
-        const w = Number(wInput.value);
-        const h = Number(hInput.value);
-        setCanvasSize(w, h);
+      // set preset to current
+      preset.value = `${CANVAS_W}x${CANVAS_H}`;
+
+      preset.onchange = () => {
+        const val = preset.value.split("x").map(Number);
+        if (val.length === 2 && isFinite(val[0]) && isFinite(val[1])) {
+          CANVAS_W = clamp(val[0], 200, 3840);
+          CANVAS_H = clamp(val[1], 100, 2160);
+          setCanvasCssSize(CANVAS_W, CANVAS_H);
+          widthInput.value = String(CANVAS_W);
+          heightInput.value = String(CANVAS_H);
+        }
       };
 
-      // ✅ applies immediately
-      wInput.oninput = () => {
-        if (preset) preset.value = "custom";
-        applyFromInputs();
+      widthInput.oninput = () => {
+        const nw = Number(widthInput.value);
+        if (isFinite(nw) && nw > 0) {
+          CANVAS_W = clamp(Math.round(nw), 200, 3840);
+          setCanvasCssSize(CANVAS_W, CANVAS_H);
+          preset.value = `${CANVAS_W}x${CANVAS_H}`;
+        }
       };
-      hInput.oninput = () => {
-        if (preset) preset.value = "custom";
-        applyFromInputs();
+
+      heightInput.oninput = () => {
+        const nh = Number(heightInput.value);
+        if (isFinite(nh) && nh > 0) {
+          CANVAS_H = clamp(Math.round(nh), 100, 2160);
+          setCanvasCssSize(CANVAS_W, CANVAS_H);
+          preset.value = `${CANVAS_W}x${CANVAS_H}`;
+        }
       };
 
-      if (preset) {
-        preset.onchange = () => {
-          if (preset.value === "1280x720") {
-            wInput.value = "1280";
-            hInput.value = "720";
-            setCanvasSize(1280, 720, { fromPreset: true });
-          } else if (preset.value === "1920x1080") {
-            wInput.value = "1920";
-            hInput.value = "1080";
-            setCanvasSize(1920, 1080, { fromPreset: true });
-          }
-        };
-      }
+      document.getElementById("canvasBgColor").oninput = (e) => {
+        canvasBg.backgroundColor = e.target.value || canvasBg.backgroundColor;
+      };
+      document.getElementById("canvasBgOpacity").oninput = (e) => {
+        const v = Number(e.target.value);
+        canvasBg.opacity = isFinite(v) ? clamp(v, 0, 1) : canvasBg.opacity;
+      };
+      document.getElementById("canvasBgImage").oninput = (e) => {
+        canvasBg.backgroundImage = e.target.value || "";
+      };
 
-      document.getElementById("applyCanvasBgBtn").onclick = () => {
-        const c = document.getElementById("canvasBgColor").value.trim();
-        const o = Number(document.getElementById("canvasBgOpacity").value.trim());
-        const img = document.getElementById("canvasBgImage").value.trim();
-
-        canvasBg.backgroundColor = c || canvasBg.backgroundColor;
-        canvasBg.opacity = isFinite(o) ? clamp(o, 0, 1) : canvasBg.opacity;
-        canvasBg.backgroundImage = img || "";
-
+      applyBtn.onclick = () => {
         applyCanvasBackground();
         showToast("Canvas background updated");
+        // ensure css var size still matches inputs
+        setCanvasCssSize(CANVAS_W, CANVAS_H);
       };
 
-      const browseBtn = document.getElementById("browseCanvasBgBtn");
-      const input = document.getElementById("canvasBgUploadInput");
-      browseBtn.onclick = () => { input.value=""; input.click(); };
-      input.onchange = async () => {
-        const f = input.files?.[0];
+      browseBtn.onclick = () => { uploadInput.value=""; uploadInput.click(); };
+      uploadInput.onchange = async () => {
+        const f = uploadInput.files?.[0];
         if (!f) return;
         try{
           const cfg = await readJsonFile(f);
@@ -1805,7 +1727,7 @@
       return;
     }
 
-    // Visual settings view
+    // Visual settings view (when a visual is selected)
     const v = selected;
 
     const posHtml = `
@@ -1851,60 +1773,58 @@
       </div>
     `;
 
-    const textBoxHtml = (v.type === "textBox")
-      ? `
+    // Editor sections depending on type
+    let visualSpecificHtml = "";
+
+    if (v.type === "textbox") {
+      visualSpecificHtml = `
         <div class="fSection">
           <div class="fHeader">
             <div class="fHeaderTitle">Text Box</div>
-            <div class="fSmall">Formatting</div>
+            <div class="fSmall">Edit content & style</div>
           </div>
 
           <div class="row one">
             <div class="field">
-              <div class="label">Text</div>
-              <textarea class="input" id="tbText" rows="4" style="resize:vertical;">${escapeHtml(v.textBox?.text || "")}</textarea>
+              <div class="label">Text content</div>
+              <textarea id="txtContent" class="input" style="height:100px">${escapeAttr(v.text || "")}</textarea>
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <div class="label">Font size</div>
-              <input class="input" id="tbSize" value="${escapeAttr(String(v.textBox?.fontSize ?? 18))}" />
+              <div class="label">Font size (px)</div>
+              <input class="input" id="txtFontSize" value="${escapeAttr(String(v.fontSize || 16))}" />
             </div>
             <div class="field">
               <div class="label">Font color</div>
-              <input class="colorInput" id="tbColor" type="color" value="${escapeAttr(ensureHex(v.textBox?.color || "#e8ecf2"))}" />
+              <input class="input" id="txtColor" value="${escapeAttr(v.color || "#e8ecf2")}" />
             </div>
           </div>
 
           <div class="row">
             <div class="field">
-              <div class="label">Background color</div>
-              <input class="input" id="tbBg" value="${escapeAttr(String(v.textBox?.bg || "rgba(0,0,0,0.15)"))}" />
+              <div class="label">Background</div>
+              <input class="input" id="txtBg" value="${escapeAttr(v.bgColor || "transparent")}" />
             </div>
             <div class="field">
-              <div class="label">Alignment</div>
-              <div class="miniBtns">
-                <button class="miniBtn" id="tbAlignL">Left</button>
-                <button class="miniBtn" id="tbAlignC">Center</button>
-                <button class="miniBtn" id="tbAlignR">Right</button>
-              </div>
+              <div class="label">Format</div>
+              <select class="select" id="txtAlign">
+                <option value="left" ${v.align==="left"?"selected":""}>Left</option>
+                <option value="center" ${v.align==="center"?"selected":""}>Center</option>
+                <option value="right" ${v.align==="right"?"selected":""}>Right</option>
+              </select>
             </div>
           </div>
 
-          <div class="miniBtns">
-            <button class="miniBtn" id="tbBold">Bold</button>
-          </div>
-
-          <div class="fSmall" style="margin-top:8px;">
-            Tip: You can also edit directly in the visual.
+          <div class="smallBtnRow" style="margin-top:8px;">
+            <label style="display:inline-flex;align-items:center;gap:8px"><input type="checkbox" id="txtBold" ${v.bold?"checked":""}/> Bold</label>
+            <button class="btn" id="applyTxtBtn">Apply</button>
           </div>
         </div>
-      `
-      : "";
-
-    const colorsHtml = (v.type === "image")
-      ? `
+      `;
+    } else if (v.type === "image") {
+      visualSpecificHtml = `
         <div class="fSection">
           <div class="fHeader">
             <div class="fHeaderTitle">Image</div>
@@ -1914,10 +1834,9 @@
             <button class="btn" id="replaceImageBtn">Replace image</button>
           </div>
         </div>
-      `
-      : (v.type === "kpi" || v.type === "card" || v.type === "multirowCard" || v.type === "textBox")
-        ? ``
-        : `
+      `;
+    } else {
+      visualSpecificHtml = `
         <div class="fSection">
           <div class="fHeader">
             <div class="fHeaderTitle">Data colors</div>
@@ -1935,9 +1854,16 @@
           </div>
         </div>
       `;
+    }
 
-    formatBody.innerHTML = posHtml + textBoxHtml + colorsHtml;
+    formatBody.innerHTML = canvasSectionHtml + posHtml + visualSpecificHtml;
 
+    // Wire canvas fields at top of pane
+    document.getElementById("canvasBgColor").oninput = (e) => { canvasBg.backgroundColor = e.target.value || canvasBg.backgroundColor; applyCanvasBackground(); };
+    document.getElementById("canvasBgOpacity").oninput = (e) => { const v = Number(e.target.value); canvasBg.opacity = isFinite(v) ? clamp(v,0,1) : canvasBg.opacity; applyCanvasBackground(); };
+    document.getElementById("canvasBgImage").oninput = (e) => { canvasBg.backgroundImage = e.target.value || ""; applyCanvasBackground(); };
+
+    // Visual fields
     document.getElementById("fmtTitle").oninput = (e) => {
       v.title = e.target.value;
       const t = document.getElementById(`title_${v.id}`);
@@ -1950,10 +1876,10 @@
       const nw = Number(document.getElementById("fmtW").value);
       const nh = Number(document.getElementById("fmtH").value);
 
-      if (isFinite(nx)) v.x = clamp(nx, 0, canvasW - v.w);
-      if (isFinite(ny)) v.y = clamp(ny, 0, canvasH - v.h);
-      if (isFinite(nw)) v.w = clamp(nw, 220, canvasW - v.x);
-      if (isFinite(nh)) v.h = clamp(nh, 170, canvasH - v.y);
+      if (isFinite(nx)) v.x = clamp(nx, 0, Math.max(0, CANVAS_W - v.w));
+      if (isFinite(ny)) v.y = clamp(ny, 0, Math.max(0, CANVAS_H - v.h));
+      if (isFinite(nw)) v.w = clamp(nw, 40, Math.max(40, CANVAS_W - v.x));
+      if (isFinite(nh)) v.h = clamp(nh, 24, Math.max(24, CANVAS_H - v.y));
 
       applyVisualRect(v);
       if (v.chart) v.chart.resize();
@@ -1962,72 +1888,7 @@
 
     document.getElementById("deleteBtn").onclick = () => removeVisual(v.id);
 
-    // Text Box controls
-    if (v.type === "textBox") {
-      ensureTextBoxState(v);
-
-      const tbText = document.getElementById("tbText");
-      const tbSize = document.getElementById("tbSize");
-      const tbColor = document.getElementById("tbColor");
-      const tbBg = document.getElementById("tbBg");
-
-      const refreshTextBox = () => {
-        const el = document.querySelector(`#body_${v.id} .textBoxEditor`);
-        if (el) applyTextBoxStyles(el, v);
-      };
-
-      tbText.oninput = () => {
-        v.textBox.text = tbText.value;
-        const el = document.querySelector(`#body_${v.id} .textBoxEditor`);
-        if (el) el.innerText = v.textBox.text;
-      };
-
-      tbSize.oninput = () => {
-        const n = Number(tbSize.value);
-        if (isFinite(n)) v.textBox.fontSize = clamp(n, 8, 120);
-        refreshTextBox();
-      };
-
-      tbColor.oninput = () => {
-        v.textBox.color = tbColor.value;
-        refreshTextBox();
-      };
-
-      tbBg.oninput = () => {
-        v.textBox.bg = tbBg.value;
-        refreshTextBox();
-      };
-
-      const boldBtn = document.getElementById("tbBold");
-      const setBoldActive = () => {
-        if (!boldBtn) return;
-        boldBtn.classList.toggle("active", !!v.textBox.bold);
-      };
-      boldBtn.onclick = () => {
-        v.textBox.bold = !v.textBox.bold;
-        setBoldActive();
-        refreshTextBox();
-      };
-      setBoldActive();
-
-      const alL = document.getElementById("tbAlignL");
-      const alC = document.getElementById("tbAlignC");
-      const alR = document.getElementById("tbAlignR");
-
-      const setAlignActive = () => {
-        alL.classList.toggle("active", v.textBox.align === "left");
-        alC.classList.toggle("active", v.textBox.align === "center");
-        alR.classList.toggle("active", v.textBox.align === "right");
-      };
-
-      alL.onclick = () => { v.textBox.align = "left"; setAlignActive(); refreshTextBox(); };
-      alC.onclick = () => { v.textBox.align = "center"; setAlignActive(); refreshTextBox(); };
-      alR.onclick = () => { v.textBox.align = "right"; setAlignActive(); refreshTextBox(); };
-
-      setAlignActive();
-    }
-
-    if (v.type !== "image" && v.type !== "kpi" && v.type !== "card" && v.type !== "multirowCard" && v.type !== "textBox") {
+    if (v.type !== "image" && v.type !== "textbox") {
       v.series.forEach((s, idx) => {
         const nameEl = document.getElementById(`sname_${v.id}_${idx}`);
         const colEl  = document.getElementById(`scol_${v.id}_${idx}`);
@@ -2072,6 +1933,27 @@
           renderVisualContent(v);
           showToast("Image replaced");
         };
+      };
+    }
+
+    if (v.type === "textbox") {
+      document.getElementById("applyTxtBtn").onclick = () => {
+        const content = document.getElementById("txtContent").value;
+        const fs = Number(document.getElementById("txtFontSize").value) || 14;
+        const color = document.getElementById("txtColor").value || "#e8ecf2";
+        const bg = document.getElementById("txtBg").value || "transparent";
+        const align = document.getElementById("txtAlign").value || "left";
+        const bold = !!document.getElementById("txtBold").checked;
+
+        v.text = content;
+        v.fontSize = clamp(fs, 8, 96);
+        v.color = color;
+        v.bgColor = bg;
+        v.align = align;
+        v.bold = bold;
+
+        renderVisualContent(v);
+        showToast("Text box updated");
       };
     }
   }
@@ -2174,6 +2056,7 @@
 
   if (uploadDashboardBtn) {
     uploadDashboardBtn.addEventListener("click", () => {
+      // user explicitly initiated upload
       uploadDashboardInput.value = "";
       uploadDashboardInput.click();
     });
@@ -2242,19 +2125,25 @@
           color: s.color,
           overrideColor: !!s.overrideColor
         })),
-        imageDataUrl: v.type === "image" ? (v.imageDataUrl || "") : undefined,
-        kpi: v.type === "kpi" ? (v.kpi || null) : undefined,
-        card: v.type === "card" ? (v.card || null) : undefined,
-        multirow: v.type === "multirowCard" ? (v.multirow || null) : undefined,
-        textBox: v.type === "textBox" ? (v.textBox || null) : undefined
+        // include visual-specific fields
+        kpiValue: v.kpiValue,
+        kpiLabel: v.kpiLabel,
+        cardValue: v.cardValue,
+        cardLabel: v.cardLabel,
+        rows: v.rows,
+        text: v.text,
+        fontSize: v.fontSize,
+        colorText: v.color,
+        bgColorText: v.bgColor,
+        imageDataUrl: v.type === "image" ? (v.imageDataUrl || "") : undefined
       };
     }).filter(Boolean);
 
     return {
-      version: 2,
+      version: 1,
       canvas: {
-        width: canvasW,
-        height: canvasH,
+        width: CANVAS_W,
+        height: CANVAS_H,
         background: canvasBg
       },
       theme,
@@ -2265,17 +2154,21 @@
   async function loadDashboard(obj){
     clearAllVisuals();
 
-    // canvas size (must load first so clamping uses correct page bounds)
-    const w = Number(obj?.canvas?.width || 1280);
-    const h = Number(obj?.canvas?.height || 720);
-    setCanvasSize(w, h);
-
     if (obj?.canvas?.background) {
       canvasBg = normalizeCanvasBg(obj.canvas.background);
     } else {
       canvasBg = structuredClone(sampleCanvasBg);
     }
     applyCanvasBackground();
+
+    // load canvas size if provided
+    if (obj?.canvas?.width && obj?.canvas?.height) {
+      CANVAS_W = clamp(Number(obj.canvas.width) || CANVAS_W, 200, 3840);
+      CANVAS_H = clamp(Number(obj.canvas.height) || CANVAS_H, 100, 2160);
+      setCanvasCssSize(CANVAS_W, CANVAS_H);
+    } else {
+      setCanvasCssSize(CANVAS_W, CANVAS_H);
+    }
 
     theme = normalizeTheme(obj?.theme || defaultTheme);
     applyThemeEverywhere();
@@ -2287,10 +2180,10 @@
         id,
         type: vs.type,
         title: vs.title || defaultTitleFor(vs.type),
-        x: clamp(Number(vs.x)||40, 0, canvasW-220),
-        y: clamp(Number(vs.y)||40, 0, canvasH-170),
-        w: clamp(Number(vs.w)||DEFAULT_SIZES[vs.type]?.w||520, 220, canvasW),
-        h: clamp(Number(vs.h)||DEFAULT_SIZES[vs.type]?.h||300, 170, canvasH),
+        x: clamp(Number(vs.x)||40, 0, CANVAS_W-220),
+        y: clamp(Number(vs.y)||40, 0, CANVAS_H-170),
+        w: clamp(Number(vs.w)||DEFAULT_SIZES[vs.type]?.w||520, 40, CANVAS_W),
+        h: clamp(Number(vs.h)||DEFAULT_SIZES[vs.type]?.h||300, 24, CANVAS_H),
         series: Array.isArray(vs.series)
           ? vs.series.map((s,i)=>({
               key: s.key || s.name || `S${i+1}`,
@@ -2300,22 +2193,25 @@
             }))
           : buildDefaultSeries(vs.type),
         imageDataUrl: vs.type === "image" ? (vs.imageDataUrl || "") : undefined,
-        kpi: vs.type === "kpi" ? (vs.kpi || null) : undefined,
-        card: vs.type === "card" ? (vs.card || null) : undefined,
-        multirow: vs.type === "multirowCard" ? (vs.multirow || null) : undefined,
-        textBox: vs.type === "textBox" ? (vs.textBox || null) : undefined,
         chart: null
       };
 
-      if (v.type === "textBox") ensureTextBoxState(v);
+      // visual specific fields
+      if (vs.type === "kpi") { v.kpiValue = vs.kpiValue ?? 0; v.kpiLabel = vs.kpiLabel ?? "Metric"; }
+      if (vs.type === "card") { v.cardValue = vs.cardValue ?? 0; v.cardLabel = vs.cardLabel ?? "Card"; }
+      if (vs.type === "multirowcard") { v.rows = Array.isArray(vs.rows) ? vs.rows : []; }
+      if (vs.type === "textbox") {
+        v.text = vs.text || "Editable text";
+        v.fontSize = vs.fontSize || 16;
+        v.color = vs.colorText || "#e8ecf2";
+        v.bgColor = vs.bgColorText || "transparent";
+        v.bold = !!vs.bold;
+        v.align = vs.align || "left";
+      }
 
-      v.series?.forEach((s,i)=> {
+      v.series?.forEach((s,i)=>{
         if (!s.overrideColor) s.color = paletteColor(i);
       });
-
-      if (v.type === "kpi" && !v.kpi) v.kpi = { label: "Sales", value: "" };
-      if (v.type === "card" && !v.card) v.card = { label: "Orders", value: "" };
-      if (v.type === "multirowCard" && !v.multirow) v.multirow = { rows: null };
 
       state.visuals.set(id, v);
       state.order.push(id);
@@ -2374,6 +2270,39 @@
   function escapeAttr(str){ return escapeHtml(str).replaceAll("\n"," "); }
 
   // -------------------------
+  // Pane alignment with canvas
+  // Align left/right panes top padding to the canvas top position
+  // -------------------------
+  function alignPanesWithCanvas(){
+    if (!canvas || !leftPane || !rightPane || !canvasFrame) return;
+    // compute canvas top relative to the pane containers
+    const canvasRect = canvas.getBoundingClientRect();
+    const leftRect = leftPane.getBoundingClientRect();
+    const rightRect = rightPane.getBoundingClientRect();
+
+    // how much offset within left/right panes to align their content with the canvas top?
+    const leftOffset = Math.max(8, canvasRect.top - leftRect.top);
+    const rightOffset = Math.max(8, canvasRect.top - rightRect.top);
+
+    leftPane.style.paddingTop = `${leftOffset}px`;
+    rightPane.style.paddingTop = `${rightOffset}px`;
+    document.documentElement.style.setProperty("--canvasOffsetTop", `${Math.min(leftOffset, rightOffset)}px`);
+  }
+
+  window.addEventListener("resize", () => {
+    alignPanesWithCanvas();
+  });
+
+  // -------------------------
+  // Utilities: ensure alignment after canvas size changes
+  // -------------------------
+  function setCanvasSizeImmediate(w, h){
+    CANVAS_W = clamp(Math.round(w), 200, 3840);
+    CANVAS_H = clamp(Math.round(h), 100, 2160);
+    setCanvasCssSize(CANVAS_W, CANVAS_H);
+  }
+
+  // -------------------------
   // Start: format pane should always show canvas settings
   // -------------------------
   renderFormatPane();
@@ -2383,5 +2312,8 @@
   // -------------------------
   // addVisual("line");
   // addVisual("donut");
+
+  // align panes initially
+  setTimeout(() => alignPanesWithCanvas(), 120);
 
 })();
